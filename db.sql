@@ -77,6 +77,23 @@ CREATE TABLE IF NOT EXISTS meta (
     PRIMARY KEY (k)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- API-Schlüssel für das Management-Board (/api/v1/*).
+-- Es wird ausschließlich der SHA-256-Hash gespeichert; der Klartext ist nur einmalig
+-- direkt nach der Erzeugung sichtbar. key_prefix dient der Wiedererkennung in der Oberfläche.
+CREATE TABLE IF NOT EXISTS api_keys (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    label         VARCHAR(64)  NOT NULL DEFAULT 'management-board',
+    key_prefix    VARCHAR(16)  NOT NULL,
+    key_hash      CHAR(64)     NOT NULL,      -- SHA-256 (hex) des Klartext-Schlüssels
+    created_at    INT UNSIGNED NOT NULL,
+    created_by    VARCHAR(64)  NULL,          -- Benutzername oder 'install.sh'
+    last_used_at  INT UNSIGNED NULL,
+    last_used_ip  VARCHAR(45)  NULL,
+    use_count     INT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_api_keys_hash (key_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Standard-Dienste (weitere werden von install.sh bzw. über das Web-Frontend ergänzt)
 INSERT IGNORE INTO services (name, display_name, sort_order, created_at) VALUES
     ('ssh',   'SSH',   10, UNIX_TIMESTAMP()),

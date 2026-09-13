@@ -5,7 +5,7 @@ declare(strict_types=1);
  * quickinfo – Bootstrap: Konfiguration, Datenbank, Hilfsfunktionen.
  */
 
-define('QI_VERSION', '1.0.0');
+define('QI_VERSION', '1.1.0');
 define('QI_ROOT', dirname(__DIR__));
 
 function qi_config(): array
@@ -42,6 +42,7 @@ function qi_merge_defaults(array $cfg): array
         'retention' => ['raw_days' => 4, 'agg_days' => 30, 'log_days' => 30],
         'collector' => ['root_fs' => '/', 'cpu_sample_ms' => 1000, 'nvidia_smi' => 'nvidia-smi', 'sensors' => 'sensors'],
         'auth' => ['max_attempts' => 5, 'lockout_seconds' => 900, 'session_lifetime' => 43200, 'session_name' => 'quickinfo_sid'],
+        'api'  => ['cors_origins' => ['*'], 'max_failures' => 10, 'lockout_seconds' => 300],
     ];
     foreach ($defaults as $section => $values) {
         $cfg[$section] = array_merge($values, $cfg[$section] ?? []);

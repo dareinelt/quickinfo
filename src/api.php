@@ -15,6 +15,11 @@ declare(strict_types=1);
  *  DELETE /api/services/{id}
  *  GET    /api/services/available   Auf dem System bekannte systemd-Units
  *  POST   /api/password             {current, new}
+ *  GET    /api/apikey               Metadaten des API-Schlüssels (Management-Board)
+ *  POST   /api/apikey/rotate        Neuen Schlüssel erzeugen (Klartext einmalig in der Antwort)
+ *  DELETE /api/apikey               Schlüssel widerrufen
+ *
+ *  /api/v1/*                        Öffentliche Read-Only-API (Bearer-Token) → src/api_v1.php
  */
 
 const QI_RANGES = [
@@ -34,6 +39,11 @@ function qi_api_dispatch(): never
     $parts = $path === '' ? [] : explode('/', $path);
     $resource = $parts[0] ?? '';
     $id = $parts[1] ?? null;
+
+    if ($resource === 'v1') {
+        // Externe API: eigene Authentifizierung (Bearer-Token), kein Session-/CSRF-Kontext
+        qi_api_v1_dispatch(implode('/', array_slice($parts, 1)), $method);
+    }
 
     if ($method !== 'GET' && $method !== 'HEAD' && $resource !== 'login') {
         // Alle schreibenden Anfragen benötigen ein gültiges CSRF-Token
@@ -88,9 +98,54 @@ function qi_api_dispatch(): never
             $body = qi_request_json();
             $result = qi_change_password($user['id'], (string)($body['current'] ?? ''), (string)($body['new'] ?? ''));
             qi_json_response($result, $result['ok'] ? 200 : 400);
+
+        case $resource === 'apikey' && $id === null && $method === 'GET':
+            qi_require_auth();
+            qi_api_apikey_info();
+
+        case $resource === 'apikey' && $id === 'rotate' && $method === 'POST':
+            $user = qi_require_auth();
+            qi_api_apikey_rotate($user['username']);
+
+        case $resource === 'apikey' && $id === null && $method === 'DELETE':
+            qi_require_auth();
+            qi_api_key_revoke();
+            qi_json_response(['ok' => true] + qi_api_apikey_payload());
     }
 
     qi_json_error('Endpunkt nicht gefunden.', 404);
+}
+
+function qi_api_base_url(): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    $host = (string)($_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+    $host = preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', $host) ?? 'localhost';
+    return ($https ? 'https' : 'http') . '://' . $host;
+}
+
+function qi_api_apikey_payload(): array
+{
+    $cfg = qi_config()['api'];
+    return [
+        'key'          => qi_api_key_info(),
+        'configured'   => qi_api_key_info() !== null,
+        'base_url'     => qi_api_base_url(),
+        'cors_origins' => array_values(array_filter((array)($cfg['cors_origins'] ?? []), 'is_string')),
+        'endpoints'    => array_map(static fn(string $k) => '/api/v1/' . $k, array_keys(QI_API_V1_ENDPOINTS)),
+    ];
+}
+
+function qi_api_apikey_info(): never
+{
+    qi_json_response(qi_api_apikey_payload());
+}
+
+function qi_api_apikey_rotate(string $username): never
+{
+    $key = qi_api_key_rotate($username);
+    qi_json_response(['ok' => true, 'api_key' => $key] + qi_api_apikey_payload(), 201);
 }
 
 function qi_api_session(): never
@@ -296,6 +351,15 @@ function qi_api_history(string $range): never
     if (!isset(QI_RANGES[$range])) {
         qi_json_error('Ungültiger Zeitraum. Erlaubt: ' . implode(', ', array_keys(QI_RANGES)), 400);
     }
+    qi_json_response(qi_history_build($range));
+}
+
+/**
+ * Baut die aggregierten Zeitreihen für einen gültigen Zeitraum auf (gemeinsam genutzt
+ * vom Web-Frontend und von /api/v1/history).
+ */
+function qi_history_build(string $range): array
+{
     $spec = QI_RANGES[$range];
     $step = $spec['step'];
     $now = time();
@@ -365,12 +429,12 @@ function qi_api_history(string $range): never
         $out[$metric] = $list;
     }
 
-    qi_json_response([
+    return [
         'range'  => $range,
         'from'   => $from,
         'to'     => $to,
         'step'   => $step,
         'now'    => $now,
         'series' => $out,
-    ]);
+    ];
 }

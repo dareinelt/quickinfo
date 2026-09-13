@@ -19,6 +19,7 @@
     timer: null,
     charts: {},
     availableUnits: null,
+    apiKey: null,
   };
 
   // ---------------------------------------------------------------------
@@ -390,16 +391,18 @@
     switchTab(tab);
     renderServiceTable();
     loadAvailableUnits();
-    setTimeout(() => { const i = tab === 'services' ? $('#svc-name') : $('#pw-current'); if (i) i.focus(); }, 60);
+    setTimeout(() => { const i = tab === 'services' ? $('#svc-name') : tab === 'password' ? $('#pw-current') : null; if (i) i.focus(); }, 60);
   }
 
   function closeSettings() {
     $('#modal-settings').classList.add('hidden');
+    hideApiKeyReveal();
   }
 
   function switchTab(tab) {
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
     $$('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
+    if (tab === 'api') loadApiKeyInfo();
   }
 
   async function loadAvailableUnits() {
@@ -524,6 +527,129 @@
   }
 
   // ---------------------------------------------------------------------
+  // Einstellungen: API-Schlüssel / Management-Board
+  // ---------------------------------------------------------------------
+  function fmtDateTime(ts) {
+    return ts ? new Date(ts * 1000).toLocaleString('de-DE') : '–';
+  }
+
+  async function loadApiKeyInfo() {
+    try {
+      state.apiKey = await api('apikey');
+      renderApiKey();
+    } catch (e) {
+      if (e.status !== 401) showApiMsg(e.message);
+    }
+  }
+
+  function showApiMsg(text, ok = false) {
+    const msg = $('#api-msg');
+    msg.textContent = text; msg.classList.toggle('ok', ok); msg.hidden = !text;
+  }
+
+  function hideApiKeyReveal() {
+    $('#api-key-reveal').hidden = true;
+    $('#api-key-value').textContent = '';
+  }
+
+  function renderApiKey() {
+    const info = state.apiKey;
+    if (!info) return;
+    const key = info.key;
+    const badge = $('#api-key-state');
+    const dot = $('.dot', badge), label = $('span:last-child', badge);
+
+    if (key) {
+      $('#api-key-title').textContent = 'API-Schlüssel aktiv';
+      $('#api-key-sub').textContent = `Bezeichnung „${key.label}“ · erstellt von ${key.created_by || 'unbekannt'}`;
+      dot.className = 'dot ok'; label.textContent = 'aktiv';
+      $('#api-key-meta').hidden = false;
+      $('#api-key-prefix').textContent = key.prefix + '…';
+      $('#api-key-created').textContent = fmtDateTime(key.created_at);
+      $('#api-key-used').textContent = key.last_used_at
+        ? `${fmtDateTime(key.last_used_at)} (${fmtAgo(key.last_used_at)})${key.last_used_ip ? ' von ' + key.last_used_ip : ''}`
+        : 'noch nie – Management-Board noch nicht verbunden';
+      $('#api-key-count').textContent = nf0.format(key.use_count || 0);
+      $('#btn-api-rotate span').textContent = 'Schlüssel neu generieren (rotieren)';
+      $('#btn-api-revoke').hidden = false;
+    } else {
+      $('#api-key-title').textContent = 'Kein API-Schlüssel konfiguriert';
+      $('#api-key-sub').textContent = 'Die API /api/v1/… lehnt derzeit alle Anfragen ab (401).';
+      dot.className = 'dot'; label.textContent = 'inaktiv';
+      $('#api-key-meta').hidden = true;
+      $('#btn-api-rotate span').textContent = 'Schlüssel generieren';
+      $('#btn-api-revoke').hidden = true;
+    }
+
+    $('#api-base-url').textContent = info.base_url || location.origin;
+    const eps = $('#api-endpoints');
+    eps.textContent = '';
+    (info.endpoints || []).forEach((p, i) => {
+      if (i) eps.appendChild(document.createTextNode(' · '));
+      const c = document.createElement('code'); c.textContent = p; eps.appendChild(c);
+    });
+    const cors = info.cors_origins || [];
+    $('#api-cors').textContent = !cors.length ? 'deaktiviert' : cors.includes('*') ? 'alle Origins (*)' : cors.join(', ');
+    $('#api-example').textContent =
+      `curl -k -H "Authorization: Bearer <API-Schlüssel>" \\\n     "${info.base_url || location.origin}/api/v1/status"`;
+  }
+
+  async function onRotateApiKey() {
+    const hasKey = !!(state.apiKey && state.apiKey.key);
+    if (hasKey && !confirm('Den API-Schlüssel wirklich neu generieren?\n\nDer bisherige Schlüssel wird sofort ungültig; das Management-Board muss mit dem neuen Schlüssel neu gekoppelt werden.')) return;
+    const btn = $('#btn-api-rotate');
+    btn.disabled = true;
+    showApiMsg('');
+    try {
+      const res = await api('apikey/rotate', { method: 'POST', body: {} });
+      state.apiKey = res;
+      renderApiKey();
+      $('#api-key-value').textContent = res.api_key || '';
+      $('#api-key-reveal').hidden = false;
+      toast(hasKey ? 'API-Schlüssel rotiert' : 'API-Schlüssel erzeugt', 'ok');
+      $('#api-key-reveal').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (e) {
+      showApiMsg(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function onRevokeApiKey() {
+    if (!confirm('API-Schlüssel widerrufen?\n\nDas Management-Board kann danach keine Daten mehr abrufen, bis ein neuer Schlüssel erzeugt wurde.')) return;
+    const btn = $('#btn-api-revoke');
+    btn.disabled = true;
+    showApiMsg('');
+    try {
+      state.apiKey = await api('apikey', { method: 'DELETE' });
+      hideApiKeyReveal();
+      renderApiKey();
+      toast('API-Schlüssel widerrufen', 'ok');
+    } catch (e) {
+      showApiMsg(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function onCopyApiKey() {
+    const value = $('#api-key-value').textContent;
+    if (!value) return;
+    let copied = false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(value); copied = true; } catch (_) { /* Fallback unten */ }
+    }
+    if (!copied) {
+      const range = document.createRange();
+      range.selectNodeContents($('#api-key-value'));
+      const sel = window.getSelection();
+      sel.removeAllRanges(); sel.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) { copied = false; }
+    }
+    toast(copied ? 'Schlüssel in die Zwischenablage kopiert' : 'Kopieren nicht möglich – bitte manuell markieren', copied ? 'ok' : 'danger');
+  }
+
+  // ---------------------------------------------------------------------
   // Login / Logout
   // ---------------------------------------------------------------------
   async function onLogin(ev) {
@@ -551,6 +677,8 @@
   async function onLogout() {
     try { await api('logout', { method: 'POST' }); } catch (_) { /* ignorieren */ }
     state.user = null;
+    state.apiKey = null;
+    hideApiKeyReveal();
     showLogin();
   }
 
@@ -574,6 +702,9 @@
     $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
     $('#service-add-form').addEventListener('submit', onAddService);
     $('#password-form').addEventListener('submit', onChangePassword);
+    $('#btn-api-rotate').addEventListener('click', onRotateApiKey);
+    $('#btn-api-revoke').addEventListener('click', onRevokeApiKey);
+    $('#btn-api-copy').addEventListener('click', onCopyApiKey);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('#modal-settings').classList.contains('hidden')) closeSettings();
       if (!$('#view-app').classList.contains('hidden') && !e.metaKey && !e.ctrlKey && !e.altKey) {
