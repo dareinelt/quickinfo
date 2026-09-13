@@ -38,4 +38,15 @@ return [
         'session_lifetime' => 43200, // 12 Stunden
         'session_name'     => 'quickinfo_sid',
     ],
+
+    // REST-API für das Management-Board (/api/v1/*, Bearer-Token)
+    'api' => [
+        // Erlaubte Origins für CORS. ['*'] = alle Origins (Standard, da Zugriff ohnehin nur
+        // mit gültigem API-Key möglich ist). Alternativ eine Liste konkreter Origins, z.B.
+        // ['https://board.example.com', 'http://10.0.0.5:8080']. [] deaktiviert CORS.
+        'cors_origins'    => ['*'],
+        // Fehlversuche pro IP, bevor die API für lockout_seconds gesperrt wird
+        'max_failures'    => 10,
+        'lockout_seconds' => 300,
+    ],
 ];

@@ -9,6 +9,8 @@
 #  Anwendung nach /var/www/html/quickinfo und startet den Collector als
 #  systemd-Timer (minütlich). Das Skript ist idempotent und kann erneut
 #  ausgeführt werden (Update); dabei wird das Admin-Passwort neu gesetzt.
+#  Bei der Ersteinrichtung wird zusätzlich ein API-Schlüssel für das
+#  Management-Board erzeugt (QI_ROTATE_API_KEY=1 erzwingt eine Neuerzeugung).
 # =============================================================================
 set -euo pipefail
 
@@ -22,6 +24,8 @@ DB_USER="${QI_DB_USER:-quickinfo}"
 ADMIN_USER="${QI_ADMIN_USER:-admin}"
 HTTPS_PORT="${QI_HTTPS_PORT:-443}"
 HTTP_PORT="${QI_HTTP_PORT:-80}"
+ROTATE_API_KEY="${QI_ROTATE_API_KEY:-0}"
+CORS_ORIGINS="${QI_CORS_ORIGINS:-*}"     # Komma-getrennt, z.B. "https://board.example.com,http://10.0.0.5"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 c_bold=$'\033[1m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_red=$'\033[31m'; c_cyan=$'\033[36m'; c_reset=$'\033[0m'
@@ -34,7 +38,7 @@ die()   { printf '%s✖ %s%s\n' "${c_red}" "$*" "${c_reset}" >&2; exit 1; }
 # Vorprüfungen
 # -----------------------------------------------------------------------------
 [[ "${EUID}" -eq 0 ]] || die "Bitte als root ausführen (sudo bash install.sh)."
-[[ -f "${SRC_DIR}/db.sql" && -d "${SRC_DIR}/public" && -d "${SRC_DIR}/src" && -d "${SRC_DIR}/collector" ]] \
+[[ -f "${SRC_DIR}/db.sql" && -d "${SRC_DIR}/public" && -d "${SRC_DIR}/src" && -d "${SRC_DIR}/collector" && -d "${SRC_DIR}/bin" ]] \
     || die "Quelldateien nicht gefunden. install.sh muss aus dem Projektverzeichnis ausgeführt werden."
 command -v apt-get >/dev/null 2>&1 || die "Dieses Skript unterstützt nur Ubuntu/Debian (apt-get)."
 
@@ -101,8 +105,8 @@ ok "${SENSOR_COUNT} Temperatursensor(en) unter /sys/class/hwmon gefunden"
 # -----------------------------------------------------------------------------
 step "Anwendung nach ${APP_DIR} kopieren"
 mkdir -p "${APP_DIR}"
-rm -rf "${APP_DIR}/public" "${APP_DIR}/src" "${APP_DIR}/collector"
-cp -a "${SRC_DIR}/public" "${SRC_DIR}/src" "${SRC_DIR}/collector" "${APP_DIR}/"
+rm -rf "${APP_DIR}/public" "${APP_DIR}/src" "${APP_DIR}/collector" "${APP_DIR}/bin"
+cp -a "${SRC_DIR}/public" "${SRC_DIR}/src" "${SRC_DIR}/collector" "${SRC_DIR}/bin" "${APP_DIR}/"
 cp -a "${SRC_DIR}/db.sql" "${APP_DIR}/db.sql"
 ok "Dateien kopiert"
 
@@ -111,11 +115,14 @@ ok "Dateien kopiert"
 # -----------------------------------------------------------------------------
 step "Datenbank einrichten"
 DB_PASS=""
+EXISTING_CORS=""
 if [[ -f "${CONF_FILE}" ]]; then
-    # Bestehendes DB-Passwort aus vorhandener Konfiguration weiterverwenden
+    # Bestehendes DB-Passwort und CORS-Einstellung aus vorhandener Konfiguration weiterverwenden
     DB_PASS="$(php -r '$c = require $argv[1]; echo $c["db"]["password"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
+    EXISTING_CORS="$(php -r '$c = require $argv[1]; echo implode(",", (array)($c["api"]["cors_origins"] ?? []));' "${CONF_FILE}" 2>/dev/null || true)"
 fi
 [[ -n "${DB_PASS}" ]] || DB_PASS="$(randpw 32)"
+[[ -n "${QI_CORS_ORIGINS:-}" || -z "${EXISTING_CORS}" ]] || CORS_ORIGINS="${EXISTING_CORS}"
 
 mysql --protocol=socket -uroot <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -154,6 +161,14 @@ DB_SOCKET=""
 for s in /var/run/mysqld/mysqld.sock /run/mysqld/mysqld.sock; do
     [[ -S "${s}" ]] && { DB_SOCKET="${s}"; break; }
 done
+# CORS-Origins als PHP-Array-Literal aufbereiten (nur URL-taugliche Zeichen zulassen)
+CORS_PHP=""
+IFS=',' read -ra CORS_ARR <<< "${CORS_ORIGINS}"
+for o in "${CORS_ARR[@]}"; do
+    o="$(printf '%s' "${o}" | tr -d '[:space:]' | tr -cd 'A-Za-z0-9.:/*_-')"
+    [[ -n "${o}" ]] || continue
+    CORS_PHP="${CORS_PHP}${CORS_PHP:+, }'${o}'"
+done
 cat > "${CONF_FILE}" <<PHP
 <?php
 // quickinfo – automatisch erzeugt von install.sh am $(date -Is)
@@ -183,6 +198,12 @@ return [
         'session_lifetime' => 43200,
         'session_name'     => 'quickinfo_sid',
     ],
+    'api' => [
+        // CORS-Origins für das Management-Board: ['*'] = alle, sonst konkrete Origins
+        'cors_origins'    => [${CORS_PHP}],
+        'max_failures'    => 10,
+        'lockout_seconds' => 300,
+    ],
 ];
 PHP
 chown root:www-data "${CONF_FILE}"
@@ -192,6 +213,23 @@ chown root:www-data "${CONF_DIR}"
 ok "Konfiguration geschrieben"
 
 # -----------------------------------------------------------------------------
+# 5b) API-Schlüssel für das Management-Board
+# -----------------------------------------------------------------------------
+step "API-Schlüssel (Management-Board)"
+API_KEY=""
+if [[ "${ROTATE_API_KEY}" == "1" ]]; then
+    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" php "${APP_DIR}/bin/apikey.php" rotate --key-only)"
+    ok "API-Schlüssel neu erzeugt (Rotation erzwungen)"
+else
+    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" php "${APP_DIR}/bin/apikey.php" ensure --key-only)"
+    if [[ -n "${API_KEY}" ]]; then
+        ok "Erster API-Schlüssel erzeugt"
+    else
+        ok "Vorhandener API-Schlüssel wird beibehalten (Rotation: QI_ROTATE_API_KEY=1 oder Weboberfläche)"
+    fi
+fi
+
+# -----------------------------------------------------------------------------
 # 6) Dateirechte
 # -----------------------------------------------------------------------------
 step "Dateirechte setzen"
@@ -199,6 +237,7 @@ chown -R root:www-data "${APP_DIR}"
 find "${APP_DIR}" -type d -exec chmod 750 {} +
 find "${APP_DIR}" -type f -exec chmod 640 {} +
 chmod 750 "${APP_DIR}/collector/collector.php"
+chmod 750 "${APP_DIR}/bin/apikey.php"
 ok "Rechte gesetzt (root:www-data, 750/640)"
 
 # -----------------------------------------------------------------------------
@@ -379,9 +418,18 @@ printf '%s╚══════════════════════�
 printf '  %sURL:%s            %s\n' "${c_bold}" "${c_reset}" "${URL}"
 printf '  %sBenutzer:%s       %s\n' "${c_bold}" "${c_reset}" "${ADMIN_USER}"
 printf '  %sPasswort:%s       %s\n\n' "${c_bold}" "${c_reset}" "${ADMIN_PASS}"
+if [[ -n "${API_KEY}" ]]; then
+    printf '  %sAPI-Schlüssel (Management-Board):%s\n' "${c_bold}" "${c_reset}"
+    printf '  %s\n\n' "${API_KEY}"
+    printf '  Pairing:        %s/api/v1/  mit Header  Authorization: Bearer <API-Schlüssel>\n' "${URL}"
+    printf '  Test:           curl -k -H "Authorization: Bearer %s" %s/api/v1/info\n\n' "${API_KEY}" "${URL}"
+else
+    printf '  %sAPI-Schlüssel:%s  unverändert (Anzeige/Rotation: Einstellungen → API & Management-Board)\n\n' "${c_bold}" "${c_reset}"
+fi
 printf '  Konfiguration:  %s\n' "${CONF_FILE}"
 printf '  Webroot:        %s/public\n' "${APP_DIR}"
+printf '  API-Key-CLI:    php %s/bin/apikey.php status|rotate|revoke\n' "${APP_DIR}"
 printf '  Collector:      systemctl status %s-collector.timer\n' "${APP_NAME}"
 printf '  Logs:           journalctl -u %s-collector.service -n 50\n\n' "${APP_NAME}"
 printf '  %sHinweis:%s Das Zertifikat ist selbst signiert – der Browser zeigt beim ersten Aufruf eine Warnung.\n' "${c_yellow}" "${c_reset}"
-printf '  %sHinweis:%s Bitte das Passwort notieren; es wird nicht gespeichert und kann über die Weboberfläche geändert werden.\n\n' "${c_yellow}" "${c_reset}"
+printf '  %sHinweis:%s Bitte Passwort und API-Schlüssel notieren; beide werden nur gehasht gespeichert und nicht erneut angezeigt.\n\n' "${c_yellow}" "${c_reset}"

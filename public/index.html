@@ -26,6 +26,9 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L21 2M15 8l3 3M18 5l3 3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
   </defs>
 </svg>
 
@@ -193,6 +196,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="services">Dienste</button>
       <button class="tab" data-tab="password">Passwort</button>
+      <button class="tab" data-tab="api">API &amp; Management-Board</button>
     </nav>
 
     <section class="tab-panel" data-panel="services">
@@ -217,6 +221,60 @@
         <p id="pw-msg" class="form-error" hidden></p>
         <button type="submit" class="btn btn-primary">Passwort ändern</button>
       </form>
+    </section>
+
+    <section class="tab-panel hidden" data-panel="api">
+      <p class="muted api-intro">
+        Über die schreibgeschützte REST-API <code>/api/v1/…</code> kann ein übergeordnetes Management-Board
+        die Daten dieses Servers einsammeln. Der Zugriff erfordert den hier erzeugten API-Schlüssel als
+        <code>Authorization: Bearer &lt;Schlüssel&gt;</code>-Header.
+      </p>
+
+      <div class="api-key-card" id="api-key-card">
+        <div class="api-key-head">
+          <svg class="icon"><use href="#i-key"/></svg>
+          <div>
+            <div class="api-key-title" id="api-key-title">–</div>
+            <div class="muted api-key-sub" id="api-key-sub">–</div>
+          </div>
+          <span class="state-badge api-key-state" id="api-key-state"><span class="dot"></span><span>–</span></span>
+        </div>
+        <dl class="kv" id="api-key-meta" hidden>
+          <dt>Kennung</dt><dd><code id="api-key-prefix">–</code></dd>
+          <dt>Erstellt</dt><dd id="api-key-created">–</dd>
+          <dt>Zuletzt genutzt</dt><dd id="api-key-used">–</dd>
+          <dt>Aufrufe</dt><dd id="api-key-count">–</dd>
+        </dl>
+      </div>
+
+      <div class="api-key-reveal" id="api-key-reveal" hidden>
+        <p class="api-key-reveal-title">Neuer API-Schlüssel – wird nur jetzt einmalig angezeigt</p>
+        <div class="key-row">
+          <code id="api-key-value" class="key-value"></code>
+          <button type="button" class="btn btn-small" id="btn-api-copy" title="In die Zwischenablage kopieren"><svg class="icon"><use href="#i-copy"/></svg> Kopieren</button>
+        </div>
+        <p class="muted">Bitte sicher speichern und im Management-Board hinterlegen. Der Schlüssel wird nur gehasht gespeichert und kann später nicht mehr eingesehen werden – nur rotiert.</p>
+      </div>
+
+      <p id="api-msg" class="form-error" hidden></p>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-primary" id="btn-api-rotate"><svg class="icon"><use href="#i-refresh"/></svg> <span>Schlüssel generieren</span></button>
+        <button type="button" class="btn btn-danger" id="btn-api-revoke" hidden><svg class="icon"><use href="#i-trash"/></svg> Widerrufen</button>
+      </div>
+
+      <details class="api-pairing">
+        <summary>Pairing-Informationen für das Management-Board</summary>
+        <dl class="kv">
+          <dt>Server-URL</dt><dd><code id="api-base-url">–</code></dd>
+          <dt>Endpunkte</dt><dd id="api-endpoints">–</dd>
+          <dt>Authentifizierung</dt><dd><code>Authorization: Bearer &lt;API-Schlüssel&gt;</code> <span class="muted">oder</span> <code>X-API-Key: &lt;API-Schlüssel&gt;</code></dd>
+          <dt>CORS-Origins</dt><dd id="api-cors">–</dd>
+        </dl>
+        <p class="muted">Beispiel:</p>
+        <pre class="code-block" id="api-example">–</pre>
+        <p class="muted">CORS-Origins und Sperrgrenzen werden in <code>/etc/quickinfo/config.php</code> im Abschnitt <code>api</code> konfiguriert.</p>
+      </details>
     </section>
   </div>
 </div>
