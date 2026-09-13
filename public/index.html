@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<title>quickinfo · Server-Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f1420'/%3E%3Cpath d='M6 22l5-8 4 5 4-9 7 12' fill='none' stroke='%234f8cff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<svg width="0" height="0" class="sprite" aria-hidden="true">
+  <defs>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="14" cy="12" r="3"/><path d="M6 10v4M2 18v3M6 18v3"/></symbol>
+    <symbol id="i-temp" viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 10v6"/></symbol>
+    <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+    <symbol id="i-svc" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+    <symbol id="i-mem" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7v10M11 7v10M15 7v10M3 12h18"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+  </defs>
+</svg>
+
+<!-- ============================ LOGIN ============================ -->
+<section id="view-login" class="view hidden">
+  <div class="login-card">
+    <div class="brand">
+      <span class="brand-mark"><svg viewBox="0 0 32 32"><path d="M6 22l5-8 4 5 4-9 7 12"/></svg></span>
+      <div>
+        <h1>quickinfo</h1>
+        <p class="muted">Server-Monitor · Anmeldung</p>
+      </div>
+    </div>
+    <form id="login-form" autocomplete="on" novalidate>
+      <label class="field">
+        <span>Benutzername</span>
+        <input type="text" name="username" id="login-user" autocomplete="username" required autofocus>
+      </label>
+      <label class="field">
+        <span>Passwort</span>
+        <input type="password" name="password" id="login-pass" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn btn-primary btn-block" id="login-submit">
+        <svg class="icon"><use href="#i-lock"/></svg> Anmelden
+      </button>
+    </form>
+  </div>
+</section>
+
+<!-- ============================ DASHBOARD ============================ -->
+<section id="view-app" class="view hidden">
+  <header class="topbar">
+    <div class="brand compact">
+      <span class="brand-mark"><svg viewBox="0 0 32 32"><path d="M6 22l5-8 4 5 4-9 7 12"/></svg></span>
+      <div>
+        <h1 id="hostname">–</h1>
+        <p class="muted" id="host-meta">–</p>
+      </div>
+    </div>
+
+    <div class="range-picker" role="tablist" aria-label="Zeitraum">
+      <button data-range="1h" role="tab">1h</button>
+      <button data-range="3h" role="tab">3h</button>
+      <button data-range="24h" role="tab">24h</button>
+      <button data-range="3d" role="tab">3d</button>
+      <button data-range="14d" role="tab">14d</button>
+    </div>
+
+    <div class="topbar-actions">
+      <span class="status-pill" id="update-pill" title="Zeitpunkt der letzten Messung">
+        <span class="dot" id="update-dot"></span><span id="update-text">–</span>
+      </span>
+      <button class="btn btn-icon" id="btn-refresh" title="Jetzt aktualisieren"><svg class="icon"><use href="#i-refresh"/></svg></button>
+      <button class="btn btn-icon" id="btn-settings" title="Einstellungen"><svg class="icon"><use href="#i-settings"/></svg></button>
+      <button class="btn btn-icon" id="btn-logout" title="Abmelden"><svg class="icon"><use href="#i-logout"/></svg></button>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- Kennzahlen -->
+    <section class="stats" id="stats">
+      <article class="stat" id="stat-cpu">
+        <div class="stat-head"><svg class="icon"><use href="#i-cpu"/></svg><span>CPU-Auslastung</span></div>
+        <div class="stat-value"><span data-v="cpu">–</span><small>%</small></div>
+        <div class="bar"><i data-bar="cpu"></i></div>
+        <div class="stat-foot muted" data-v="cpu-meta">–</div>
+      </article>
+      <article class="stat" id="stat-temp">
+        <div class="stat-head"><svg class="icon"><use href="#i-temp"/></svg><span>CPU-Temperatur</span></div>
+        <div class="stat-value"><span data-v="temp">–</span><small>°C</small></div>
+        <div class="bar"><i data-bar="temp"></i></div>
+        <div class="stat-foot muted" data-v="temp-meta">–</div>
+      </article>
+      <article class="stat" id="stat-gpu">
+        <div class="stat-head"><svg class="icon"><use href="#i-gpu"/></svg><span>GPU</span></div>
+        <div class="stat-value"><span data-v="gpu">–</span><small>%</small><span class="stat-secondary" data-v="gpu-temp">–</span></div>
+        <div class="bar"><i data-bar="gpu"></i></div>
+        <div class="stat-foot muted" data-v="gpu-meta">–</div>
+      </article>
+      <article class="stat" id="stat-mem">
+        <div class="stat-head"><svg class="icon"><use href="#i-mem"/></svg><span>Arbeitsspeicher</span></div>
+        <div class="stat-value"><span data-v="mem">–</span><small>%</small></div>
+        <div class="bar"><i data-bar="mem"></i></div>
+        <div class="stat-foot muted" data-v="mem-meta">–</div>
+      </article>
+      <article class="stat" id="stat-disk">
+        <div class="stat-head"><svg class="icon"><use href="#i-disk"/></svg><span>Speicherplatz /</span></div>
+        <div class="stat-value"><span data-v="disk">–</span><small>%</small></div>
+        <div class="bar"><i data-bar="disk"></i></div>
+        <div class="stat-foot muted" data-v="disk-meta">–</div>
+      </article>
+      <article class="stat" id="stat-services">
+        <div class="stat-head"><svg class="icon"><use href="#i-svc"/></svg><span>Dienste</span></div>
+        <div class="stat-value"><span data-v="svc">–</span><small data-v="svc-total"></small></div>
+        <div class="bar"><i data-bar="svc"></i></div>
+        <div class="stat-foot muted" data-v="svc-meta">–</div>
+      </article>
+    </section>
+
+    <!-- Graphen -->
+    <section class="charts">
+      <article class="card chart-card">
+        <header>
+          <h2><svg class="icon"><use href="#i-cpu"/></svg> CPU-Auslastung</h2>
+          <label class="toggle"><input type="checkbox" id="toggle-cores" checked><span>Kerne anzeigen</span></label>
+        </header>
+        <div class="chart-wrap"><canvas id="chart-cpu"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-cpu"></div>
+      </article>
+
+      <article class="card chart-card" id="card-temp">
+        <header><h2><svg class="icon"><use href="#i-temp"/></svg> CPU-Temperatur</h2></header>
+        <div class="chart-wrap"><canvas id="chart-temp"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-temp"></div>
+      </article>
+
+      <article class="card chart-card" id="card-gpu-util">
+        <header><h2><svg class="icon"><use href="#i-gpu"/></svg> GPU-Auslastung</h2></header>
+        <div class="chart-wrap"><canvas id="chart-gpu-util"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-gpu-util"></div>
+      </article>
+
+      <article class="card chart-card" id="card-gpu-temp">
+        <header><h2><svg class="icon"><use href="#i-gpu"/></svg> GPU-Temperatur</h2></header>
+        <div class="chart-wrap"><canvas id="chart-gpu-temp"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-gpu-temp"></div>
+      </article>
+
+      <article class="card chart-card">
+        <header><h2><svg class="icon"><use href="#i-disk"/></svg> Speicherplatz /</h2></header>
+        <div class="chart-wrap"><canvas id="chart-disk"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-disk"></div>
+      </article>
+
+      <article class="card chart-card">
+        <header><h2><svg class="icon"><use href="#i-mem"/></svg> Arbeitsspeicher &amp; Load</h2></header>
+        <div class="chart-wrap"><canvas id="chart-mem"></canvas><div class="chart-tooltip"></div></div>
+        <div class="legend" id="legend-mem"></div>
+      </article>
+    </section>
+
+    <!-- Dienste -->
+    <section class="card">
+      <header class="card-header">
+        <h2><svg class="icon"><use href="#i-svc"/></svg> Systemd-Dienste</h2>
+        <button class="btn btn-small" id="btn-manage-services"><svg class="icon"><use href="#i-plus"/></svg> Verwalten</button>
+      </header>
+      <div class="services" id="services"></div>
+    </section>
+  </main>
+
+  <footer class="footer muted">quickinfo <span id="version"></span> · Messintervall 1 min · Aktualisierung alle 30 s</footer>
+</section>
+
+<!-- ============================ EINSTELLUNGEN ============================ -->
+<div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel">
+    <header>
+      <h2 id="settings-title">Einstellungen</h2>
+      <button class="btn btn-icon" data-close title="Schließen"><svg class="icon"><use href="#i-close"/></svg></button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="services">Dienste</button>
+      <button class="tab" data-tab="password">Passwort</button>
+    </nav>
+
+    <section class="tab-panel" data-panel="services">
+      <form id="service-add-form" class="row-form" autocomplete="off">
+        <input type="text" id="svc-name" list="svc-units" placeholder="Unit-Name, z.B. docker" required pattern="[A-Za-z0-9][A-Za-z0-9@._:\-]*" maxlength="128">
+        <datalist id="svc-units"></datalist>
+        <input type="text" id="svc-display" placeholder="Anzeigename (optional)" maxlength="128">
+        <button type="submit" class="btn btn-primary"><svg class="icon"><use href="#i-plus"/></svg> Hinzufügen</button>
+      </form>
+      <p id="svc-error" class="form-error" hidden></p>
+      <table class="table" id="svc-table">
+        <thead><tr><th>Unit</th><th>Anzeigename</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="tab-panel hidden" data-panel="password">
+      <form id="password-form" autocomplete="off">
+        <label class="field"><span>Aktuelles Passwort</span><input type="password" id="pw-current" autocomplete="current-password" required></label>
+        <label class="field"><span>Neues Passwort (min. 10 Zeichen)</span><input type="password" id="pw-new" autocomplete="new-password" minlength="10" required></label>
+        <label class="field"><span>Neues Passwort wiederholen</span><input type="password" id="pw-repeat" autocomplete="new-password" minlength="10" required></label>
+        <p id="pw-msg" class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary">Passwort ändern</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="/assets/chart.js"></script>
+<script src="/assets/app.js"></script>
+</body>
+</html>
