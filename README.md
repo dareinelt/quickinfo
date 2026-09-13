@@ -23,7 +23,7 @@ Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend â€
 Auf einem frischen Ubuntu-Server (20.04 mit PHP â‰¥ 8.1 Backport, empfohlen 22.04 / 24.04):
 
 ```bash
-git clone <repo-url> quickinfo && cd quickinfo && sudo bash install.sh
+git clone https://github.com/dareinelt/quickinfo quickinfo && cd quickinfo && sudo bash install.sh
 ```
 
 `install.sh` erledigt:
