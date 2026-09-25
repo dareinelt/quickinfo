@@ -82,6 +82,10 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 2
   border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow);
 }
 .login-card .brand { margin-bottom: 24px; }
+.login-system { margin-bottom: 20px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.login-hostname { font-size: 16px; margin: 0 0 4px; overflow-wrap: anywhere; }
+.login-desc { margin: 0 0 4px; }
+.login-inventory { margin: 0; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand h1 { font-size: 20px; }
 .brand.compact h1 { font-size: 16px; }

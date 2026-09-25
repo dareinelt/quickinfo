@@ -15,6 +15,7 @@ declare(strict_types=1);
  *  DELETE /api/services/{id}
  *  GET    /api/services/available   Auf dem System bekannte systemd-Units
  *  POST   /api/password             {current, new}
+ *  POST   /api/system               {description, inventory} – Kurzbeschreibung / Inventarnummer
  *  GET    /api/apikey               Metadaten des API-Schlüssels (Management-Board)
  *  POST   /api/apikey/rotate        Neuen Schlüssel erzeugen (Klartext einmalig in der Antwort)
  *  DELETE /api/apikey               Schlüssel widerrufen
@@ -111,6 +112,10 @@ function qi_api_dispatch(): never
             qi_require_auth();
             qi_api_key_revoke();
             qi_json_response(['ok' => true] + qi_api_apikey_payload());
+
+        case $resource === 'system' && $method === 'POST':
+            qi_require_auth();
+            qi_api_system_update();
     }
 
     qi_json_error('Endpunkt nicht gefunden.', 404);
@@ -156,7 +161,66 @@ function qi_api_session(): never
         'user'          => $user ? $user['username'] : null,
         'csrf'          => qi_csrf_token(),
         'version'       => QI_VERSION,
+        'system'        => qi_system_info(),
     ]);
+}
+
+/**
+ * Liefert die öffentlich sichtbaren System-Informationen für die Anmeldeseite:
+ * Hostname, Kurzbeschreibung, Inventarnummer und VM-Erkennung. Die Inventarnummer
+ * ist ausschließlich auf Bare-Metal-Servern (keine virtuelle Maschine) relevant.
+ */
+function qi_system_info(): array
+{
+    $row = qi_db()->query("SELECT v FROM snapshot WHERE k = 'latest'")->fetch();
+    $snapshot = $row ? json_decode((string)$row['v'], true) : null;
+    $snapshot = is_array($snapshot) ? $snapshot : [];
+
+    $isVm = array_key_exists('is_vm', $snapshot)
+        ? (bool)$snapshot['is_vm']
+        : qi_is_virtual_machine();
+
+    return [
+        'hostname'    => !empty($snapshot['hostname']) ? (string)$snapshot['hostname'] : php_uname('n'),
+        'description' => (string)qi_meta_get('system_description', ''),
+        'inventory'   => (string)qi_meta_get('system_inventory', ''),
+        'is_vm'       => $isVm,
+    ];
+}
+
+/**
+ * Speichert Kurzbeschreibung und/oder Inventarnummer (POST /api/system).
+ */
+function qi_api_system_update(): never
+{
+    $body = qi_request_json();
+    $isVm = qi_system_info()['is_vm'];
+    $changed = false;
+
+    if (array_key_exists('description', $body)) {
+        $description = trim((string)$body['description']);
+        if (mb_strlen($description) > 255) {
+            qi_json_error('Kurzbeschreibung zu lang (max. 255 Zeichen).', 400);
+        }
+        qi_meta_set('system_description', $description);
+        $changed = true;
+    }
+    if (array_key_exists('inventory', $body)) {
+        $inventory = trim((string)$body['inventory']);
+        if (mb_strlen($inventory) > 255) {
+            qi_json_error('Inventarnummer zu lang (max. 255 Zeichen).', 400);
+        }
+        if ($inventory !== '' && $isVm) {
+            qi_json_error('Auf virtuellen Maschinen kann keine Inventarnummer vergeben werden.', 400);
+        }
+        qi_meta_set('system_inventory', $inventory);
+        $changed = true;
+    }
+    if (!$changed) {
+        qi_json_error('Keine Änderungen übergeben.', 400);
+    }
+
+    qi_json_response(['ok' => true, 'system' => qi_system_info()]);
 }
 
 function qi_api_login(): never
