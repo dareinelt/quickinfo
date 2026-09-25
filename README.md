@@ -17,6 +17,8 @@ Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend �
 - **Sicherer Login**: Session-basiert, `password_hash()`, CSRF-Token, Login-Throttling,
   HttpOnly/Secure/SameSite-Cookies, strikte Content-Security-Policy
 - **Time-Series-Speicherung** mit automatischem Downsampling (10-Minuten-Buckets) und Cleanup
+- **VM-Erkennung**: Läuft quickinfo in einer virtuellen Umgebung (VM/Container), werden die
+  Temperatur-Sensoren sowie die zugehörige Anzeige und der Verlaufsgraph automatisch deaktiviert
 - **REST-API für ein Management-Board** (`/api/v1/…`): schreibgeschützte JSON-Endpunkte mit
   Bearer-Token-Authentifizierung, konfigurierbarem CORS und Schlüsselverwaltung im Admin-Panel
 
