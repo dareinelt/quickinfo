@@ -265,21 +265,28 @@ function qi_temps_finalize(array $found): array
     return $result;
 }
 
-$temps = qi_temps_hwmon();
-if (!$temps) {
-    $temps = qi_temps_sensors((string)$ccfg['sensors']);
-}
-if (!$temps) {
-    $temps = qi_temps_thermal_zones();
-}
-foreach ($temps as $t) {
-    $metrics[$t['key']] = $t['value'];
+$isVm = qi_is_virtual_machine();
+$temps = [];
+if ($isVm) {
+    qi_log('Virtuelle Umgebung erkannt – Temperatur-Sensoren werden übersprungen');
+} else {
+    $temps = qi_temps_hwmon();
+    if (!$temps) {
+        $temps = qi_temps_sensors((string)$ccfg['sensors']);
+    }
+    if (!$temps) {
+        $temps = qi_temps_thermal_zones();
+    }
+    foreach ($temps as $t) {
+        $metrics[$t['key']] = $t['value'];
+    }
+    if ($temps) {
+        $snapshot['temp_max'] = max(array_column($temps, 'value'));
+        $metrics['temp.max'] = $snapshot['temp_max'];
+    }
 }
 $snapshot['temps'] = $temps;
-if ($temps) {
-    $snapshot['temp_max'] = max(array_column($temps, 'value'));
-    $metrics['temp.max'] = $snapshot['temp_max'];
-}
+$snapshot['is_vm'] = $isVm;
 qi_log(sprintf('CPU %.1f%% | %d Kerne | %d Temperatursensoren', $metrics['cpu.total'] ?? 0, count($cores), count($temps)));
 
 // ---------------------------------------------------------------------------

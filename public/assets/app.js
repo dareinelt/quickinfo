@@ -188,13 +188,18 @@
     // Temperatur
     const temps = s.temps || [];
     const tCard = $('#stat-temp');
-    if (temps.length) {
-      tCard.classList.remove('unavailable');
-      const hottest = temps.reduce((a, b) => (b.value > a.value ? b : a));
-      setStat('temp', s.temp_max, s.temp_max, `${temps.length} Sensoren · wärmster: ${hottest.label}`, [70, 85]);
+    if (s.is_vm) {
+      tCard.classList.add('hidden');
     } else {
-      tCard.classList.add('unavailable');
-      setStat('temp', null, null, 'Keine Sensoren gefunden');
+      tCard.classList.remove('hidden');
+      if (temps.length) {
+        tCard.classList.remove('unavailable');
+        const hottest = temps.reduce((a, b) => (b.value > a.value ? b : a));
+        setStat('temp', s.temp_max, s.temp_max, `${temps.length} Sensoren · wärmster: ${hottest.label}`, [70, 85]);
+      } else {
+        tCard.classList.add('unavailable');
+        setStat('temp', null, null, 'Keine Sensoren gefunden');
+      }
     }
 
     // GPU
@@ -318,6 +323,7 @@
     state.charts.cpu.setData({ ...base, series: cpuSeries });
 
     // Temperaturen
+    const isVm = !!snap.is_vm;
     const labelMap = new Map((snap.temps || []).map((t) => [t.key, t.label]));
     const tempKeys = Object.keys(S).filter((k) => k.startsWith('temp.') && k !== 'temp.max')
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -325,8 +331,8 @@
       key: k, label: labelMap.get(k) || k.replace(/^temp\./, ''), color: LineChart.paletteColor(i, tempKeys.length, 70, 60), points: S[k],
       width: tempKeys.length > 8 ? 1.2 : 1.6,
     }));
-    $('#card-temp').classList.toggle('hidden', tempSeries.length === 0 && !(snap.temps || []).length);
-    state.charts.temp.setData({ ...base, series: tempSeries });
+    $('#card-temp').classList.toggle('hidden', isVm || (tempSeries.length === 0 && !(snap.temps || []).length));
+    state.charts.temp.setData({ ...base, series: isVm ? [] : tempSeries });
 
     // GPU
     const gpuIdx = Array.from(new Set(Object.keys(S).filter((k) => /^gpu\.\d+\./.test(k)).map((k) => +k.split('.')[1]))).sort();

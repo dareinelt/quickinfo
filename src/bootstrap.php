@@ -190,3 +190,54 @@ function qi_command_exists(string $binary): bool
     }
     return false;
 }
+
+/**
+ * Erkennt, ob quickinfo in einer virtuellen Umgebung (VM oder Container) läuft.
+ * Auf Bare-Metal-Servern liefert systemd-detect-virt "none". Als Fallback werden
+ * DMI-Informationen und das "hypervisor"-Flag aus /proc/cpuinfo ausgewertet.
+ */
+function qi_is_virtual_machine(): bool
+{
+    $out = qi_exec(['systemd-detect-virt'], 5);
+    if ($out !== null) {
+        $virt = strtolower(trim($out));
+        if ($virt === 'none') {
+            return false;
+        }
+        if ($virt !== '') {
+            return true;
+        }
+    }
+
+    $dmiFiles = [
+        '/sys/class/dmi/id/sys_vendor',
+        '/sys/class/dmi/id/product_name',
+        '/sys/class/dmi/id/product_version',
+        '/sys/class/dmi/id/board_vendor',
+        '/sys/class/dmi/id/chassis_vendor',
+        '/sys/class/dmi/id/bios_vendor',
+    ];
+    $needles = [
+        'vmware', 'virtualbox', 'innotek', 'qemu', 'kvm', 'xen', 'microsoft',
+        'hyper-v', 'amazon', 'ec2', 'google', 'oracle', 'parallels', 'bochs',
+        'bhyve', 'openstack', 'nutanix', 'ahv', 'virtual',
+    ];
+    foreach ($dmiFiles as $file) {
+        $val = strtolower(trim((string)@file_get_contents($file)));
+        if ($val === '') {
+            continue;
+        }
+        foreach ($needles as $needle) {
+            if (str_contains($val, $needle)) {
+                return true;
+            }
+        }
+    }
+
+    $cpuinfo = strtolower((string)@file_get_contents('/proc/cpuinfo'));
+    if (str_contains($cpuinfo, 'hypervisor')) {
+        return true;
+    }
+
+    return false;
+}
