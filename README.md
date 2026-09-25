@@ -70,7 +70,7 @@ public/api/index.php    API-Einstiegspunkt (einzige PHP-Datei im Webroot)
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| GET | `/api/session` | Login-Status + CSRF-Token |
+| GET | `/api/session` | Login-Status + CSRF-Token + Systeminfo (Hostname, Kurzbeschreibung, Inventarnummer) |
 | POST | `/api/login` | `{username, password}` |
 | POST | `/api/logout` | |
 | GET | `/api/overview` | Aktueller Snapshot + Dienststatus |
@@ -79,6 +79,7 @@ public/api/index.php    API-Einstiegspunkt (einzige PHP-Datei im Webroot)
 | PUT/DELETE | `/api/services/{id}` | Anzeigename ändern / entfernen |
 | GET | `/api/services/available` | systemd-Units auf dem System |
 | POST | `/api/password` | `{current, new}` |
+| POST | `/api/system` | `{description, inventory}` – Kurzbeschreibung / Inventarnummer speichern |
 | GET | `/api/apikey` | Metadaten des API-Schlüssels, Pairing-Infos |
 | POST | `/api/apikey/rotate` | Neuen API-Schlüssel erzeugen (Klartext einmalig in der Antwort) |
 | DELETE | `/api/apikey` | API-Schlüssel widerrufen |

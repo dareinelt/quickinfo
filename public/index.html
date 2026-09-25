@@ -42,6 +42,11 @@
         <p class="muted">Server-Monitor · Anmeldung</p>
       </div>
     </div>
+    <div class="login-system" id="login-system">
+      <h2 class="login-hostname" id="login-hostname">–</h2>
+      <p class="login-desc muted" id="login-desc" hidden></p>
+      <p class="login-inventory muted" id="login-inventory" hidden></p>
+    </div>
     <form id="login-form" autocomplete="on" novalidate>
       <label class="field">
         <span>Benutzername</span>
@@ -197,6 +202,7 @@
       <button class="tab active" data-tab="services">Dienste</button>
       <button class="tab" data-tab="password">Passwort</button>
       <button class="tab" data-tab="api">API &amp; Management-Board</button>
+      <button class="tab" data-tab="system">System</button>
     </nav>
 
     <section class="tab-panel" data-panel="services">
@@ -275,6 +281,25 @@
         <pre class="code-block" id="api-example">–</pre>
         <p class="muted">CORS-Origins und Sperrgrenzen werden in <code>/etc/quickinfo/config.php</code> im Abschnitt <code>api</code> konfiguriert.</p>
       </details>
+    </section>
+
+    <section class="tab-panel hidden" data-panel="system">
+      <p class="muted api-intro">
+        Hostname, Kurzbeschreibung und Inventarnummer werden auf der Anmeldeseite angezeigt.
+        Die Inventarnummer steht nur auf Bare-Metal-Servern (keine virtuelle Maschine) zur Verfügung.
+      </p>
+      <form id="system-form" autocomplete="off">
+        <label class="field">
+          <span>Kurzbeschreibung des Systems</span>
+          <input type="text" id="sys-desc" maxlength="255" placeholder="z.B. Produktiv-Server DB-01">
+        </label>
+        <label class="field" id="sys-inv-field">
+          <span>Inventarnummer (optional)</span>
+          <input type="text" id="sys-inventory" maxlength="255" placeholder="z.B. INV-2024-0042">
+        </label>
+        <p id="sys-msg" class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary">Speichern</button>
+      </form>
     </section>
   </div>
 </div>

@@ -20,6 +20,7 @@
     charts: {},
     availableUnits: null,
     apiKey: null,
+    system: null,
   };
 
   // ---------------------------------------------------------------------
@@ -110,10 +111,24 @@
   // ---------------------------------------------------------------------
   // Views
   // ---------------------------------------------------------------------
+  function renderLoginSystem(system) {
+    const host = $('#login-hostname');
+    const desc = $('#login-desc');
+    const inv = $('#login-inventory');
+    if (!system) { host.textContent = '–'; desc.hidden = true; inv.hidden = true; return; }
+    host.textContent = system.hostname || '–';
+    const d = (system.description || '').trim();
+    desc.textContent = d; desc.hidden = !d;
+    const i = (system.inventory || '').trim();
+    inv.textContent = 'Inventarnummer: ' + i;
+    inv.hidden = !!system.is_vm || !i;
+  }
+
   function showLogin() {
     stopAutoRefresh();
     $('#view-app').classList.add('hidden');
     $('#view-login').classList.remove('hidden');
+    renderLoginSystem(state.system);
     $('#login-pass').value = '';
     setTimeout(() => $('#login-user').focus(), 50);
   }
@@ -409,6 +424,7 @@
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
     $$('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
     if (tab === 'api') loadApiKeyInfo();
+    if (tab === 'system') renderSystemForm(state.system);
   }
 
   async function loadAvailableUnits() {
@@ -529,6 +545,36 @@
       ev.target.reset();
     } catch (e) {
       msg.textContent = e.message; msg.hidden = false;
+    }
+  }
+
+  function renderSystemForm(system) {
+    if (!system) return;
+    $('#sys-desc').value = system.description || '';
+    $('#sys-inventory').value = system.inventory || '';
+    $('#sys-inv-field').hidden = !!system.is_vm;
+  }
+
+  async function onSystemSave(ev) {
+    ev.preventDefault();
+    const msg = $('#sys-msg');
+    msg.hidden = true; msg.classList.remove('ok');
+    const btn = ev.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    try {
+      const res = await api('system', {
+        method: 'POST',
+        body: { description: $('#sys-desc').value.trim(), inventory: $('#sys-inventory').value.trim() },
+      });
+      state.system = res.system;
+      renderSystemForm(res.system);
+      renderLoginSystem(res.system);
+      msg.textContent = 'Gespeichert.'; msg.classList.add('ok'); msg.hidden = false;
+      toast('System-Informationen gespeichert', 'ok');
+    } catch (e) {
+      msg.textContent = e.message; msg.hidden = false;
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -708,6 +754,7 @@
     $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
     $('#service-add-form').addEventListener('submit', onAddService);
     $('#password-form').addEventListener('submit', onChangePassword);
+    $('#system-form').addEventListener('submit', onSystemSave);
     $('#btn-api-rotate').addEventListener('click', onRotateApiKey);
     $('#btn-api-revoke').addEventListener('click', onRevokeApiKey);
     $('#btn-api-copy').addEventListener('click', onCopyApiKey);
@@ -725,6 +772,7 @@
     try {
       const s = await api('session');
       state.csrf = s.csrf;
+      state.system = s.system || null;
       $('#version').textContent = s.version ? 'v' + s.version : '';
       if (s.authenticated) {
         state.user = s.user;
