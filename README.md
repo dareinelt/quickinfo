@@ -26,7 +26,8 @@ Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend �
   AES-256-GCM-verschlüsselt in der Datenbank hinterlegt. Der Container-Tab zeigt alle
   Container (inkl. gestoppter), je Container Auslastung (CPU, RAM, Netz, Block-I/O, PIDs),
   Mounts/Volumes, Netzwerkkonfiguration, Port-Weiterleitungen und die letzten Log-Einträge;
-  Container lassen sich starten/stoppen/neu starten und mit eigenen Notizen versehen.
+  Container lassen sich starten/stoppen/neu starten, mit eigenen Notizen versehen und per
+  Drag &amp; Drop in frei benannte Ordner sortieren.
 
 ## Installation (One-Liner)
 
@@ -69,7 +70,7 @@ bin/apikey.php          API-Schlüssel per CLI verwalten (status | ensure | rota
 src/bootstrap.php       Konfiguration, PDO, Hilfsfunktionen
 src/auth.php            Session-Login, CSRF, Throttling
 src/apikey.php          API-Schlüssel: Erzeugung, Hashing, Prüfung, Throttling, CORS
-src/docker.php          Docker-Host-Modul: Verschlüsselung, SSH-Ausführung, Container/Volumes/Netzwerke/Logs/Notizen
+src/docker.php          Docker-Host-Modul: Verschlüsselung, SSH-Ausführung, Container/Volumes/Netzwerke/Logs/Notizen/Ordner
 src/api.php             REST-Endpunkte (Web-Frontend, Session-basiert)
 src/api_v1.php          Öffentliche Read-Only-API /api/v1/* (Bearer-Token)
 public/index.html       Single-Page-Frontend
@@ -102,9 +103,15 @@ public/api/index.php    API-Einstiegspunkt (einzige PHP-Datei im Webroot)
 | GET | `/api/docker/containers/{name}/stats` | Live-Auslastung (CPU, RAM, RAM %, Netz, Block-I/O, PIDs) |
 | GET | `/api/docker/containers/{name}/logs?lines=N` | Letzte Log-Zeilen (max. 1000) |
 | PUT | `/api/docker/containers/{name}/note` | `{note}` – Notiz zum Container speichern |
+| PUT | `/api/docker/containers/{name}/folder` | `{folder_id\|null}` – Container einem Ordner zuordnen bzw. freigeben |
 | POST | `/api/docker/containers/{name}/{start\|stop\|restart}` | Container steuern |
 | GET | `/api/docker/volumes` | Volumes auflisten |
 | GET | `/api/docker/networks` | Netzwerke auflisten |
+| GET/POST | `/api/docker/folders` | Ordner auflisten / anlegen `{name}` |
+| PUT | `/api/docker/folders/{id}` | `{name}` – Ordner umbenennen |
+| DELETE | `/api/docker/folders/{id}` | Ordner löschen (Container werden freigegeben) |
+| PUT | `/api/docker/folders/order` | `{ids: […]}` – Ordner-Reihenfolge speichern |
+| PUT | `/api/docker/folders/{id}/containers` | `{containers: […]}` – Inhalt/Reihenfolge eines Ordners speichern |
 
 Alle Endpunkte außer `session` und `login` erfordern eine Sitzung; schreibende Anfragen
 zusätzlich den Header `X-CSRF-Token`.
@@ -174,10 +181,16 @@ Ist der Host aktiviert, wird die Hauptseite in zwei Tabs geteilt:
   Live-Auslastung (CPU, RAM, Netz, Block-I/O, PIDs), Mounts/Volumes, Netzwerke,
   Port-Weiterleitungen, letzte Log-Einträge (wählbare Zeilenzahl) und eine frei
   editierbare Notiz je Container
+- **Ordner** – Container lassen sich logisch gruppieren: Über das Eingabefeld oberhalb der
+  Liste werden benannte Ordner angelegt. Container werden per Drag &amp; Drop in Ordner
+  verschoben (oder über „Ohne Ordner“ wieder herausgenommen), innerhalb eines Ordners
+  sortiert und die Ordner selbst per Drag &amp; Drop umsortiert. Umbenennen per Doppelklick,
+  Löschen über das ×-Symbol (Container bleiben erhalten).
 
 Alle Docker-Kommandos werden **remote per SSH** auf dem Ziel-Host ausgeführt
 (`ssh … docker …`). Das lokale `docker`-CLI wird nicht verwendet. Container-Notizen werden
 lokal in der Tabelle `docker_container_notes` (Schlüssel: Container-Name) gespeichert.
+Ordner und Zuordnungen liegen in `docker_folders` bzw. `docker_container_folders`.
 
 ## Datenhaltung
 
@@ -186,6 +199,9 @@ lokal in der Tabelle `docker_container_notes` (Schlüssel: Container-Name) gespe
 - `service_log`: Dienststatus pro Minute, Retention 30 Tage
 - `docker_host`: Singleton-Zeile (id = 1) mit Aktivierung und verschlüsselten SSH-Zugangsdaten
 - `docker_container_notes`: Container-Notizen (Primärschlüssel: Container-Name)
+- `docker_folders`: benannte Ordner mit `sort_order` (Reihenfolge)
+- `docker_container_folders`: Zuordnung Container → Ordner (Primärschlüssel: Container-Name,
+  `folder_id` nullable) inkl. `sort_order` für die Position innerhalb des Ordners
 
 Die Wartung läuft automatisch einmal pro Stunde im Collector. Manuell:
 
