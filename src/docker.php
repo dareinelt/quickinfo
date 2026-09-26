@@ -305,6 +305,60 @@ function qi_docker_save(array $in): void
 }
 
 /**
+ * Parst den human-readable Docker-Port-String (aus `docker ps` .Ports)
+ * in das strukturierte Format {container, host_ip, host_port}.
+ *
+ * @return array<int,array<string,string>>
+ */
+function qi_docker_parse_ports(string $ports): array
+{
+    $ports = trim($ports);
+    if ($ports === '') {
+        return [];
+    }
+
+    $result = [];
+    foreach (explode(',', $ports) as $part) {
+        $part = trim($part);
+        if ($part === '') {
+            continue;
+        }
+
+        if (strpos($part, '->') !== false) {
+            [$host, $container] = array_map('trim', explode('->', $part, 2));
+
+            $sep = strrpos($host, ':');
+            if ($sep !== false) {
+                $hostIp = substr($host, 0, $sep);
+                $hostPort = substr($host, $sep + 1);
+            } else {
+                $hostIp = $host;
+                $hostPort = '';
+            }
+
+            // IPv6 in eckigen Klammern: [::] -> ::
+            if ($hostIp !== '' && $hostIp[0] === '[' && substr($hostIp, -1) === ']') {
+                $hostIp = substr($hostIp, 1, -1);
+            }
+
+            $result[] = [
+                'container' => $container,
+                'host_ip' => $hostIp,
+                'host_port' => $hostPort,
+            ];
+        } else {
+            $result[] = [
+                'container' => $part,
+                'host_ip' => '',
+                'host_port' => '',
+            ];
+        }
+    }
+
+    return $result;
+}
+
+/**
  * Listet Container (nur solche mit Namen) als normalisierte Datensätze.
  *
  * @return array<int,array<string,mixed>>
@@ -345,7 +399,7 @@ function qi_docker_containers(): array
             'image' => $image,
             'state' => $state,
             'status' => $status,
-            'ports' => $ports,
+            'ports' => qi_docker_parse_ports($ports),
         ];
     }
     return $rows;
