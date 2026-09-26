@@ -117,6 +117,28 @@ CREATE TABLE IF NOT EXISTS docker_container_notes (
     PRIMARY KEY (container_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Benutzerdefinierte Ordner zur logischen Gruppierung von Docker-Containern.
+CREATE TABLE IF NOT EXISTS docker_folders (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(128) NOT NULL,
+    sort_order  INT          NOT NULL DEFAULT 0,
+    created_at  INT UNSIGNED NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_docker_folders_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Zuordnung Container → Ordner sowie die Position innerhalb des Ordners.
+-- folder_id = NULL bedeutet "keinem Ordner zugeordnet".
+CREATE TABLE IF NOT EXISTS docker_container_folders (
+    container_name  VARCHAR(255) NOT NULL,
+    folder_id       INT UNSIGNED NULL,
+    sort_order      INT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (container_name),
+    KEY idx_docker_container_folders_folder (folder_id),
+    CONSTRAINT fk_docker_container_folders_folder FOREIGN KEY (folder_id)
+        REFERENCES docker_folders (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Standard-Dienste (weitere werden von install.sh bzw. über das Web-Frontend ergänzt)
 INSERT IGNORE INTO services (name, display_name, sort_order, created_at) VALUES
     ('ssh',   'SSH',   10, UNIX_TIMESTAMP()),

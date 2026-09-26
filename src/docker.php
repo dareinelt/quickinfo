@@ -588,3 +588,228 @@ function qi_docker_note_set(string $name, string $note): void
          ON DUPLICATE KEY UPDATE note = VALUES(note), updated_at = VALUES(updated_at)'
     )->execute([$name, $note, time()]);
 }
+
+/**
+ * Normalisiert einen Ordnernamen (trimmen, Steuerzeichen entfernen, Länge begrenzen).
+ */
+function qi_docker_folder_normalize(string $name): string
+{
+    $name = trim($name);
+    $name = preg_replace('/[\x00-\x1F\x7F]/u', '', $name) ?? $name;
+    if (function_exists('mb_substr')) {
+        return mb_substr($name, 0, 128);
+    }
+    return substr($name, 0, 128);
+}
+
+/**
+ * Liefert einen einzelnen Ordner als Datensatz oder null.
+ *
+ * @return array{id:int,name:string,sort_order:int}|null
+ */
+function qi_docker_folder_row(int $id): ?array
+{
+    $stmt = qi_db()->prepare('SELECT id, name, sort_order FROM docker_folders WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) {
+        return null;
+    }
+    return [
+        'id' => (int)$row['id'],
+        'name' => (string)$row['name'],
+        'sort_order' => (int)$row['sort_order'],
+    ];
+}
+
+/**
+ * Listet alle Ordner inkl. der ihnen zugeordneten Container (in Reihenfolge).
+ *
+ * @return array<int,array{id:int,name:string,sort_order:int,containers:array<int,string>}>
+ */
+function qi_docker_folders(): array
+{
+    $db = qi_db();
+    $folders = [];
+    $stmt = $db->query('SELECT id, name, sort_order FROM docker_folders ORDER BY sort_order ASC, id ASC');
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $folders[(int)$row['id']] = [
+            'id' => (int)$row['id'],
+            'name' => (string)$row['name'],
+            'sort_order' => (int)$row['sort_order'],
+            'containers' => [],
+        ];
+    }
+    $stmt = $db->query(
+        'SELECT container_name, folder_id FROM docker_container_folders
+         WHERE folder_id IS NOT NULL ORDER BY sort_order ASC, container_name ASC'
+    );
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $fid = (int)$row['folder_id'];
+        if (isset($folders[$fid])) {
+            $folders[$fid]['containers'][] = (string)$row['container_name'];
+        }
+    }
+    return array_values($folders);
+}
+
+/**
+ * Legt einen neuen Ordner an und liefert den Datensatz.
+ *
+ * @return array{id:int,name:string,sort_order:int}
+ */
+function qi_docker_folder_create(string $name): array
+{
+    $name = qi_docker_folder_normalize($name);
+    if ($name === '') {
+        throw new RuntimeException('Ordnername darf nicht leer sein.');
+    }
+    $db = qi_db();
+    $chk = $db->prepare('SELECT id FROM docker_folders WHERE name = ?');
+    $chk->execute([$name]);
+    if ($chk->fetchColumn() !== false) {
+        throw new RuntimeException('Ein Ordner mit diesem Namen existiert bereits.');
+    }
+    $max = (int)$db->query('SELECT COALESCE(MAX(sort_order), -1) FROM docker_folders')->fetchColumn();
+    $db->prepare('INSERT INTO docker_folders (name, sort_order, created_at) VALUES (?, ?, ?)')
+       ->execute([$name, $max + 1, time()]);
+    $row = qi_docker_folder_row((int)$db->lastInsertId());
+    if ($row === null) {
+        throw new RuntimeException('Ordner konnte nicht angelegt werden.');
+    }
+    return $row;
+}
+
+/**
+ * Benennt einen Ordner um.
+ */
+function qi_docker_folder_rename(int $id, string $name): void
+{
+    $name = qi_docker_folder_normalize($name);
+    if ($name === '') {
+        throw new RuntimeException('Ordnername darf nicht leer sein.');
+    }
+    $db = qi_db();
+    $chk = $db->prepare('SELECT id FROM docker_folders WHERE id = ?');
+    $chk->execute([$id]);
+    if ($chk->fetchColumn() === false) {
+        throw new RuntimeException('Ordner nicht gefunden.');
+    }
+    $dup = $db->prepare('SELECT id FROM docker_folders WHERE name = ? AND id <> ?');
+    $dup->execute([$name, $id]);
+    if ($dup->fetchColumn() !== false) {
+        throw new RuntimeException('Ein Ordner mit diesem Namen existiert bereits.');
+    }
+    $db->prepare('UPDATE docker_folders SET name = ? WHERE id = ?')->execute([$name, $id]);
+}
+
+/**
+ * Löscht einen Ordner. Die enthaltenen Container werden automatisch freigegeben
+ * (FK ON DELETE SET NULL), bleiben aber selbst unangetastet.
+ */
+function qi_docker_folder_delete(int $id): void
+{
+    qi_db()->prepare('DELETE FROM docker_folders WHERE id = ?')->execute([$id]);
+}
+
+/**
+ * Setzt die Reihenfolge der Ordner. Erwartet die vollständige, sortierte ID-Liste.
+ *
+ * @param array<int,mixed> $ids
+ */
+function qi_docker_folder_set_order(array $ids): void
+{
+    $db = qi_db();
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare('UPDATE docker_folders SET sort_order = ? WHERE id = ?');
+        foreach ($ids as $i => $id) {
+            $stmt->execute([$i, (int)$id]);
+        }
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Setzt die vollständige, sortierte Container-Liste eines Ordners.
+ * Alle genannten Container werden dem Ordner zugeordnet (Reihenfolge = Listenindex);
+ * Container, die dem Ordner zugeordnet waren, aber nicht mehr genannt werden,
+ * werden freigegeben.
+ *
+ * @param array<int,string> $names
+ */
+function qi_docker_folder_set_containers(int $folderId, array $names): void
+{
+    $db = qi_db();
+    $chk = $db->prepare('SELECT id FROM docker_folders WHERE id = ?');
+    $chk->execute([$folderId]);
+    if ($chk->fetchColumn() === false) {
+        throw new RuntimeException('Ordner nicht gefunden.');
+    }
+
+    $ordered = [];
+    $seen = [];
+    foreach ($names as $n) {
+        $n = (string)$n;
+        if ($n === '' || isset($seen[$n])) {
+            continue;
+        }
+        $seen[$n] = true;
+        $ordered[] = $n;
+    }
+
+    $db->beginTransaction();
+    try {
+        $upsert = $db->prepare(
+            'INSERT INTO docker_container_folders (container_name, folder_id, sort_order) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE folder_id = VALUES(folder_id), sort_order = VALUES(sort_order)'
+        );
+        foreach ($ordered as $i => $n) {
+            $upsert->execute([$n, $folderId, $i]);
+        }
+        if ($ordered === []) {
+            $db->prepare('UPDATE docker_container_folders SET folder_id = NULL, sort_order = 0 WHERE folder_id = ?')
+               ->execute([$folderId]);
+        } else {
+            $placeholders = implode(',', array_fill(0, count($ordered), '?'));
+            $db->prepare(
+                'UPDATE docker_container_folders SET folder_id = NULL, sort_order = 0
+                 WHERE folder_id = ? AND container_name NOT IN (' . $placeholders . ')'
+            )->execute(array_merge([$folderId], $ordered));
+        }
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Ordnet einen Container einem Ordner zu (oder gibt ihn frei, wenn $folderId null ist).
+ */
+function qi_docker_container_set_folder(string $name, ?int $folderId): void
+{
+    $db = qi_db();
+    if ($folderId === null) {
+        $db->prepare(
+            'INSERT INTO docker_container_folders (container_name, folder_id, sort_order) VALUES (?, NULL, 0)
+             ON DUPLICATE KEY UPDATE folder_id = NULL, sort_order = 0'
+        )->execute([$name]);
+        return;
+    }
+    $chk = $db->prepare('SELECT id FROM docker_folders WHERE id = ?');
+    $chk->execute([$folderId]);
+    if ($chk->fetchColumn() === false) {
+        throw new RuntimeException('Ordner nicht gefunden.');
+    }
+    $max = $db->prepare('SELECT COALESCE(MAX(sort_order), -1) FROM docker_container_folders WHERE folder_id = ?');
+    $max->execute([$folderId]);
+    $next = (int)$max->fetchColumn() + 1;
+    $db->prepare(
+        'INSERT INTO docker_container_folders (container_name, folder_id, sort_order) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE folder_id = VALUES(folder_id), sort_order = VALUES(sort_order)'
+    )->execute([$name, $folderId, $next]);
+}

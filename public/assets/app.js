@@ -24,9 +24,12 @@
     docker: {
       config: null,
       containers: [],
+      folders: [],
       selected: null,
       detail: null,
       stats: null,
+      dragging: null,
+      draggingFolder: null,
     },
   };
 
@@ -756,11 +759,15 @@
     const txt = $('#docker-status-text');
     if (btn) btn.disabled = true;
     try {
-      const { containers } = await api('docker/containers');
-      state.docker.containers = containers || [];
+      const [containersRes, foldersRes] = await Promise.all([
+        api('docker/containers'),
+        api('docker/folders'),
+      ]);
+      state.docker.containers = containersRes.containers || [];
+      state.docker.folders = foldersRes.folders || [];
       renderDockerList();
       if (dot) dot.className = 'dot ok';
-      if (txt) txt.textContent = `${(containers || []).length} Container`;
+      if (txt) txt.textContent = `${state.docker.containers.length} Container`;
     } catch (e) {
       if (dot) dot.className = 'dot danger';
       if (txt) txt.textContent = e.message;
@@ -769,38 +776,387 @@
     }
   }
 
+  async function loadDockerFolders() {
+    try {
+      const { folders } = await api('docker/folders');
+      state.docker.folders = folders || [];
+      renderDockerList();
+    } catch (e) {
+      if (e.status !== 401) toast('Ordner konnten nicht geladen werden: ' + e.message, 'danger');
+    }
+  }
+
+  function folderIdOf(name) {
+    for (const f of state.docker.folders) {
+      if ((f.containers || []).includes(name)) return f.id;
+    }
+    return null;
+  }
+
+  function buildDockerItem(c, folderId) {
+    const el = document.createElement('div');
+    el.className = 'docker-item' + (c.name === state.docker.selected ? ' active' : '');
+    el.draggable = true;
+    el.dataset.folderId = folderId === undefined || folderId === null ? '' : String(folderId);
+    const dot = document.createElement('span');
+    dot.className = 'dot ' + (c.state === 'running' ? 'ok' : c.state === 'exited' || c.state === 'dead' ? 'danger' : '');
+    const info = document.createElement('div');
+    info.className = 'docker-item-info';
+    const name = document.createElement('div');
+    name.className = 'docker-item-name';
+    name.textContent = c.name;
+    const image = document.createElement('div');
+    image.className = 'docker-item-image';
+    image.textContent = c.image || '';
+    const st = document.createElement('div');
+    st.className = 'docker-item-state';
+    st.textContent = c.status || c.state;
+    info.appendChild(name); info.appendChild(image); info.appendChild(st);
+    el.appendChild(dot); el.appendChild(info);
+    el.addEventListener('click', () => selectDockerContainer(c.name));
+    el.addEventListener('dragstart', onContainerDragStart);
+    el.addEventListener('dragend', onContainerDragEnd);
+    el.addEventListener('dragover', onContainerDragOverItem);
+    el.addEventListener('drop', (e) => onContainerDrop(e, folderId, c.name));
+    return el;
+  }
+
+  function buildDockerFolder(folder) {
+    const el = document.createElement('div');
+    el.className = 'docker-folder';
+    el.dataset.folderId = String(folder.id);
+
+    const header = document.createElement('div');
+    header.className = 'docker-folder-header';
+
+    const grip = document.createElement('span');
+    grip.className = 'docker-folder-grip';
+    grip.draggable = true;
+    grip.title = 'Zum Sortieren ziehen';
+    grip.textContent = '⠿';
+
+    const caret = document.createElement('button');
+    caret.type = 'button';
+    caret.className = 'docker-folder-caret';
+    caret.setAttribute('aria-label', 'Ordner auf-/zuklappen');
+    caret.textContent = '▸';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'docker-folder-name';
+    nameEl.textContent = folder.name;
+    nameEl.title = 'Doppelklick zum Umbenennen';
+
+    const count = document.createElement('span');
+    count.className = 'docker-folder-count';
+    count.textContent = (folder.containers || []).length;
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'docker-folder-delete';
+    del.title = 'Ordner löschen';
+    del.setAttribute('aria-label', 'Ordner löschen');
+    del.textContent = '×';
+
+    header.appendChild(grip);
+    header.appendChild(caret);
+    header.appendChild(nameEl);
+    header.appendChild(count);
+    header.appendChild(del);
+
+    const body = document.createElement('div');
+    body.className = 'docker-folder-body';
+    body.dataset.folderId = String(folder.id);
+    for (const name of (folder.containers || [])) {
+      const c = state.docker.containers.find((x) => x.name === name);
+      if (c) body.appendChild(buildDockerItem(c, folder.id));
+    }
+
+    el.appendChild(header);
+    el.appendChild(body);
+
+    caret.addEventListener('click', (ev) => { ev.stopPropagation(); el.classList.toggle('collapsed'); });
+    header.addEventListener('click', () => el.classList.toggle('collapsed'));
+    nameEl.addEventListener('dblclick', (ev) => { ev.stopPropagation(); startFolderRename(el, folder, nameEl); });
+    del.addEventListener('click', (ev) => { ev.stopPropagation(); deleteDockerFolder(folder); });
+
+    grip.addEventListener('dragstart', onFolderDragStart);
+    grip.addEventListener('dragend', onFolderDragEnd);
+    header.addEventListener('dragover', onFolderDragOver);
+    header.addEventListener('dragleave', onFolderDragLeave);
+    header.addEventListener('drop', onFolderDrop);
+
+    body.addEventListener('dragover', onContainerDragOver);
+    body.addEventListener('dragleave', onContainerDragLeave);
+    body.addEventListener('drop', (e) => onContainerDrop(e, folder.id, null));
+
+    return el;
+  }
+
   function renderDockerList() {
+    if (state.docker.dragging) return; // während eines Drags nicht neu rendern
     const wrap = $('#docker-list');
     if (!wrap) return;
     wrap.textContent = '';
     const list = state.docker.containers || [];
-    if (!list.length) {
+    const folders = state.docker.folders || [];
+
+    if (!list.length && !folders.length) {
       const p = document.createElement('p');
       p.className = 'muted';
       p.textContent = 'Keine Container gefunden.';
       wrap.appendChild(p);
       return;
     }
+
+    const membership = new Set();
+    for (const f of folders) for (const n of (f.containers || [])) membership.add(n);
+
+    // Wurzelbereich ("Ohne Ordner") – dient gleichzeitig als Ablage zum Herausnehmen.
+    const root = document.createElement('div');
+    root.className = 'docker-folder root';
+    const rootHeader = document.createElement('div');
+    rootHeader.className = 'docker-folder-header root-header';
+    rootHeader.textContent = 'Ohne Ordner';
+    const rootBody = document.createElement('div');
+    rootBody.className = 'docker-folder-body';
+    rootBody.dataset.folderId = '';
     for (const c of list) {
-      const el = document.createElement('div');
-      el.className = 'docker-item' + (c.name === state.docker.selected ? ' active' : '');
-      const dot = document.createElement('span');
-      dot.className = 'dot ' + (c.state === 'running' ? 'ok' : c.state === 'exited' || c.state === 'dead' ? 'danger' : '');
-      const info = document.createElement('div');
-      info.className = 'docker-item-info';
-      const name = document.createElement('div');
-      name.className = 'docker-item-name';
-      name.textContent = c.name;
-      const image = document.createElement('div');
-      image.className = 'docker-item-image';
-      image.textContent = c.image || '';
-      const st = document.createElement('div');
-      st.className = 'docker-item-state';
-      st.textContent = c.status || c.state;
-      info.appendChild(name); info.appendChild(image); info.appendChild(st);
-      el.appendChild(dot); el.appendChild(info);
-      el.addEventListener('click', () => selectDockerContainer(c.name));
-      wrap.appendChild(el);
+      if (!membership.has(c.name)) rootBody.appendChild(buildDockerItem(c, null));
+    }
+    rootBody.addEventListener('dragover', onContainerDragOver);
+    rootBody.addEventListener('dragleave', onContainerDragLeave);
+    rootBody.addEventListener('drop', (e) => onContainerDrop(e, null, null));
+    root.appendChild(rootHeader);
+    root.appendChild(rootBody);
+    wrap.appendChild(root);
+
+    for (const f of folders) wrap.appendChild(buildDockerFolder(f));
+  }
+
+  // ---------------------------------------------------------------------
+  // Drag & Drop (Container)
+  // ---------------------------------------------------------------------
+  function clearContainerDropTargets() {
+    $$('.docker-item.drop-target, .docker-folder-body.drop-target').forEach((el) => el.classList.remove('drop-target'));
+  }
+
+  function onContainerDragStart(e) {
+    const name = e.currentTarget.querySelector('.docker-item-name')?.textContent || '';
+    if (!name) return;
+    state.docker.dragging = name;
+    e.currentTarget.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', name);
+    }
+  }
+
+  function onContainerDragEnd(e) {
+    state.docker.dragging = null;
+    $$('.docker-item.dragging').forEach((el) => el.classList.remove('dragging'));
+    clearContainerDropTargets();
+  }
+
+  function onContainerDragOver(e) {
+    if (!state.docker.dragging) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearContainerDropTargets();
+    e.currentTarget.classList.add('drop-target');
+  }
+
+  function onContainerDragOverItem(e) {
+    if (!state.docker.dragging) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearContainerDropTargets();
+    e.currentTarget.classList.add('drop-target');
+  }
+
+  function onContainerDragLeave(e) {
+    if (e.currentTarget === e.target) e.currentTarget.classList.remove('drop-target');
+  }
+
+  async function onContainerDrop(e, folderId, beforeName) {
+    if (!state.docker.dragging) return;
+    e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    const name = state.docker.dragging;
+    clearContainerDropTargets();
+    state.docker.dragging = null;
+    if (name === beforeName) return;
+    await moveDockerContainer(name, folderId, beforeName);
+  }
+
+  async function moveDockerContainer(name, targetFolderId, beforeName) {
+    const folders = state.docker.folders;
+    const target = folders.find((f) => f.id === targetFolderId) || null;
+    if (folderIdOf(name) === null && targetFolderId === null) return; // bereits ohne Ordner
+    try {
+      if (targetFolderId === null) {
+        await api('docker/containers/' + encodeURIComponent(name) + '/folder', { method: 'PUT', body: { folder_id: null } });
+      } else {
+        const base = ((target && target.containers) || []).filter((n) => n !== name);
+        let at = base.length;
+        if (beforeName) { const bi = base.indexOf(beforeName); if (bi >= 0) at = bi; }
+        base.splice(at, 0, name);
+        await api('docker/folders/' + targetFolderId + '/containers', { method: 'PUT', body: { containers: base } });
+      }
+      for (const f of folders) f.containers = (f.containers || []).filter((n) => n !== name);
+      if (targetFolderId !== null && target) {
+        let at = target.containers.length;
+        if (beforeName) { const bi = target.containers.indexOf(beforeName); if (bi >= 0) at = bi; }
+        target.containers.splice(at, 0, name);
+      }
+      renderDockerList();
+    } catch (e) {
+      toast(e.message, 'danger');
+      renderDockerList();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Drag & Drop (Ordner-Reihenfolge)
+  // ---------------------------------------------------------------------
+  function clearFolderDropTargets() {
+    $$('.docker-folder.drop-before, .docker-folder.drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+  }
+
+  function onFolderDragStart(e) {
+    if (state.docker.dragging) { e.preventDefault(); return; }
+    const folderEl = e.currentTarget.closest('.docker-folder');
+    state.docker.draggingFolder = Number(folderEl.dataset.folderId);
+    folderEl.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', folderEl.dataset.folderId);
+    }
+  }
+
+  function onFolderDragEnd() {
+    state.docker.draggingFolder = null;
+    $$('.docker-folder.dragging').forEach((el) => el.classList.remove('dragging'));
+    clearFolderDropTargets();
+  }
+
+  function onFolderDragOver(e) {
+    if (state.docker.draggingFolder == null) return;
+    const folderEl = e.currentTarget.closest('.docker-folder');
+    if (!folderEl || folderEl.classList.contains('root')) return;
+    const id = Number(folderEl.dataset.folderId);
+    if (id === state.docker.draggingFolder) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearFolderDropTargets();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    folderEl.classList.add(before ? 'drop-before' : 'drop-after');
+  }
+
+  function onFolderDragLeave(e) {
+    const folderEl = e.currentTarget.closest('.docker-folder');
+    if (folderEl && !folderEl.contains(e.relatedTarget)) {
+      folderEl.classList.remove('drop-before', 'drop-after');
+    }
+  }
+
+  function onFolderDrop(e) {
+    if (state.docker.draggingFolder == null) return;
+    e.preventDefault();
+    const folderEl = e.currentTarget.closest('.docker-folder');
+    if (!folderEl || folderEl.classList.contains('root')) return;
+    const targetId = Number(folderEl.dataset.folderId);
+    const sourceId = state.docker.draggingFolder;
+    clearFolderDropTargets();
+    if (sourceId === targetId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    reorderFolders(sourceId, targetId, before);
+  }
+
+  async function reorderFolders(sourceId, targetId, before) {
+    const folders = state.docker.folders;
+    const ids = folders.map((f) => f.id);
+    const from = ids.indexOf(sourceId);
+    if (from < 0) return;
+    ids.splice(from, 1);
+    let to = ids.indexOf(targetId);
+    if (to < 0) return;
+    ids.splice(before ? to : to + 1, 0, sourceId);
+    try {
+      await api('docker/folders/order', { method: 'PUT', body: { ids } });
+      const map = new Map(folders.map((f) => [f.id, f]));
+      state.docker.folders = ids.map((id) => map.get(id));
+      renderDockerList();
+    } catch (e) {
+      toast(e.message, 'danger');
+      renderDockerList();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Ordner-Verwaltung
+  // ---------------------------------------------------------------------
+  async function onAddDockerFolder(ev) {
+    ev.preventDefault();
+    const input = $('#docker-folder-add-input');
+    const name = (input.value || '').trim();
+    if (!name) { input.focus(); return; }
+    try {
+      await api('docker/folders', { method: 'POST', body: { name } });
+      input.value = '';
+      await loadDockerFolders();
+      toast('Ordner angelegt', 'ok');
+    } catch (e) {
+      toast(e.message, 'danger');
+    }
+  }
+
+  function startFolderRename(folderEl, folder, nameEl) {
+    if (folderEl.querySelector('input.docker-folder-rename-input')) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'docker-folder-rename-input';
+    input.value = folder.name;
+    input.maxLength = 128;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const newName = (input.value || '').trim();
+      input.replaceWith(nameEl);
+      if (!save || newName === '' || newName === folder.name) return;
+      try {
+        await api('docker/folders/' + folder.id, { method: 'PUT', body: { name: newName } });
+        folder.name = newName;
+        nameEl.textContent = newName;
+      } catch (e) {
+        toast(e.message, 'danger');
+        nameEl.textContent = folder.name;
+      }
+    };
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('dblclick', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  async function deleteDockerFolder(folder) {
+    if (!window.confirm(`Ordner „${folder.name}" löschen? Die enthaltenen Container werden dann ohne Ordner angezeigt.`)) return;
+    try {
+      await api('docker/folders/' + folder.id, { method: 'DELETE' });
+      await loadDockerFolders();
+      toast('Ordner gelöscht', 'ok');
+    } catch (e) {
+      toast(e.message, 'danger');
     }
   }
 
@@ -1171,6 +1527,8 @@
     if (btnDockerLogs) btnDockerLogs.addEventListener('click', dockerLoadLogs);
     const btnDockerNote = $('#btn-docker-note-save');
     if (btnDockerNote) btnDockerNote.addEventListener('click', dockerSaveNote);
+    const dockerFolderAddForm = $('#docker-folder-add-form');
+    if (dockerFolderAddForm) dockerFolderAddForm.addEventListener('submit', onAddDockerFolder);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('#modal-settings').classList.contains('hidden')) closeSettings();
       if (!$('#view-app').classList.contains('hidden') && !e.metaKey && !e.ctrlKey && !e.altKey) {

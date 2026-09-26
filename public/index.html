@@ -212,6 +212,10 @@
       <div class="docker-layout">
         <aside class="card docker-list-card">
           <header class="card-header"><h2><svg class="icon"><use href="#i-docker"/></svg> Container</h2></header>
+          <form class="docker-folder-add" id="docker-folder-add-form" autocomplete="off">
+            <input type="text" id="docker-folder-add-input" maxlength="128" placeholder="Neuer Ordner …" aria-label="Neuer Ordner" />
+            <button type="submit" class="btn btn-small" title="Ordner anlegen">+</button>
+          </form>
           <div class="docker-list" id="docker-list"></div>
         </aside>
 

@@ -327,6 +327,60 @@ textarea:focus, input[type="number"]:focus, select:focus { border-color: var(--a
 .docker-logs { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; background: #05080d; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; color: #c7d2e3; }
 .docker-logs.empty { color: var(--text-dim); }
 
+/* ---------- Docker-Ordner ---------- */
+.docker-folder-add { display: flex; gap: 6px; padding: 0 12px 10px; }
+.docker-folder-add input {
+  font: inherit; font-size: 12.5px; color: var(--text); background: #0d1320;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 7px 10px;
+  outline: none; width: 100%;
+}
+.docker-folder-add input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 255, .2); }
+.docker-folder-add .btn { flex: none; padding: 6px 11px; }
+
+.docker-folder { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.docker-folder + .docker-folder { margin-top: 8px; }
+.docker-folder-header {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 6px;
+  background: var(--bg-elev-2); cursor: pointer; user-select: none; font-size: 12.5px;
+}
+.docker-folder-header.root-header {
+  cursor: default; color: var(--text-muted); font-weight: 600; padding: 4px 6px 4px 8px;
+}
+.docker-folder-grip { cursor: grab; color: var(--text-dim); font-size: 13px; line-height: 1; padding: 0 2px; }
+.docker-folder-grip:active { cursor: grabbing; }
+.docker-folder-caret {
+  background: transparent; border: 0; color: var(--text-muted); cursor: pointer; padding: 0 2px;
+  font-size: 12px; line-height: 1; transition: transform .15s;
+}
+.docker-folder:not(.collapsed) .docker-folder-caret { transform: rotate(90deg); }
+.docker-folder-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docker-folder-count {
+  color: var(--text-muted); font-size: 11px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 0 7px; line-height: 16px; flex: none;
+}
+.docker-folder-delete {
+  background: transparent; border: 0; color: var(--text-dim); cursor: pointer; font-size: 15px;
+  line-height: 1; padding: 0 2px; border-radius: 4px;
+}
+.docker-folder-delete:hover { color: var(--danger); background: rgba(248, 113, 113, .12); }
+.docker-folder-rename-input {
+  flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--text);
+  background: #0d1320; border: 1px solid var(--accent); border-radius: 6px; padding: 3px 6px; outline: none;
+}
+.docker-folder-body { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: transparent; min-height: 6px; }
+.docker-folder-body:empty::before { content: 'Container hierher ziehen'; display: block; color: var(--text-dim); font-size: 11px; padding: 4px 6px; }
+.docker-folder.collapsed .docker-folder-body { display: none; }
+.docker-folder .docker-item { margin: 0; }
+
+.docker-item.dragging { opacity: .45; }
+.docker-folder.dragging { opacity: .55; }
+.docker-item.drop-target, .docker-folder-body.drop-target {
+  border-color: var(--accent); background: rgba(79, 140, 255, .12);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.docker-folder.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
+.docker-folder.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
+
 @media (max-width: 900px) {
   .docker-layout { grid-template-columns: 1fr; }
 }

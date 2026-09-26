@@ -142,6 +142,30 @@ function qi_api_dispatch(): never
             qi_require_auth();
             qi_json_response(['networks' => qi_docker_networks()]);
 
+        case $resource === 'docker' && $id === 'folders' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(['folders' => qi_docker_folders()]);
+
+        case $resource === 'docker' && $id === 'folders' && $method === 'POST':
+            qi_require_auth();
+            qi_api_docker_folder_create();
+
+        case $resource === 'docker' && $id === 'folders' && ($parts[2] ?? '') === 'order' && $method === 'PUT':
+            qi_require_auth();
+            qi_api_docker_folder_order();
+
+        case $resource === 'docker' && $id === 'folders' && ($parts[2] ?? '') !== '' && ($parts[3] ?? '') === 'containers' && $method === 'PUT':
+            qi_require_auth();
+            qi_api_docker_folder_set_containers((int)$parts[2]);
+
+        case $resource === 'docker' && $id === 'folders' && ($parts[2] ?? '') !== '' && $method === 'PUT':
+            qi_require_auth();
+            qi_api_docker_folder_rename((int)$parts[2]);
+
+        case $resource === 'docker' && $id === 'folders' && ($parts[2] ?? '') !== '' && $method === 'DELETE':
+            qi_require_auth();
+            qi_api_docker_folder_delete((int)$parts[2]);
+
         case $resource === 'docker' && $id === 'containers':
             qi_require_auth();
             qi_api_docker_container(array_slice($parts, 2), $method);
@@ -569,11 +593,93 @@ function qi_api_docker_save(): never
 }
 
 /**
+ * Legt einen Docker-Ordner an (POST /api/docker/folders).
+ */
+function qi_api_docker_folder_create(): never
+{
+    $body = qi_request_json();
+    $name = (string)($body['name'] ?? '');
+    try {
+        $folder = qi_docker_folder_create($name);
+    } catch (Throwable $e) {
+        qi_json_error($e->getMessage(), 400);
+    }
+    qi_json_response(['folder' => $folder], 201);
+}
+
+/**
+ * Benennt einen Docker-Ordner um (PUT /api/docker/folders/{id}).
+ */
+function qi_api_docker_folder_rename(int $id): never
+{
+    $body = qi_request_json();
+    $name = (string)($body['name'] ?? '');
+    try {
+        qi_docker_folder_rename($id, $name);
+    } catch (Throwable $e) {
+        qi_json_error($e->getMessage(), 400);
+    }
+    qi_json_response(['ok' => true]);
+}
+
+/**
+ * Löscht einen Docker-Ordner (DELETE /api/docker/folders/{id}).
+ */
+function qi_api_docker_folder_delete(int $id): never
+{
+    try {
+        qi_docker_folder_delete($id);
+    } catch (Throwable $e) {
+        qi_json_error($e->getMessage(), 400);
+    }
+    qi_json_response(['ok' => true]);
+}
+
+/**
+ * Setzt die Reihenfolge der Docker-Ordner (PUT /api/docker/folders/order).
+ * Body: {"ids": [3, 1, 2]}
+ */
+function qi_api_docker_folder_order(): never
+{
+    $body = qi_request_json();
+    $ids = $body['ids'] ?? [];
+    if (!is_array($ids)) {
+        qi_json_error('Ungültige Reihenfolge.', 400);
+    }
+    try {
+        qi_docker_folder_set_order(array_values($ids));
+    } catch (Throwable $e) {
+        qi_json_error($e->getMessage(), 400);
+    }
+    qi_json_response(['ok' => true]);
+}
+
+/**
+ * Setzt die Container eines Ordners (PUT /api/docker/folders/{id}/containers).
+ * Body: {"containers": ["name-a", "name-b"]}
+ */
+function qi_api_docker_folder_set_containers(int $id): never
+{
+    $body = qi_request_json();
+    $containers = $body['containers'] ?? [];
+    if (!is_array($containers)) {
+        qi_json_error('Ungültige Container-Liste.', 400);
+    }
+    try {
+        qi_docker_folder_set_containers($id, array_map('strval', array_values($containers)));
+    } catch (Throwable $e) {
+        qi_json_error($e->getMessage(), 400);
+    }
+    qi_json_response(['ok' => true]);
+}
+
+/**
  * Verteilt Container-Sub-Routen:
  *   [name]                    GET  → Detail + Notiz
  *   [name]/stats              GET  → Live-Auslastung
  *   [name]/logs               GET  → letzte Logzeilen
  *   [name]/note               GET/PUT
+ *   [name]/folder             PUT  → Ordnerzuordnung {folder_id|null}
  *   [name]/start|stop|restart POST
  *
  * @param array<int,string> $sub
@@ -621,6 +727,18 @@ function qi_api_docker_container(array $sub, string $method): never
         $note = (string)($body['note'] ?? '');
         qi_docker_note_set($ref, $note);
         qi_json_response(['ok' => true, 'note' => $note]);
+    }
+
+    if ($method === 'PUT' && $action === 'folder') {
+        $body = qi_request_json();
+        $folderId = $body['folder_id'] ?? null;
+        $folderId = $folderId === null ? null : (int)$folderId;
+        try {
+            qi_docker_container_set_folder(ltrim($ref, '/'), $folderId);
+        } catch (Throwable $e) {
+            qi_json_error($e->getMessage(), 400);
+        }
+        qi_json_response(['ok' => true]);
     }
 
     if ($method === 'POST' && in_array($action, ['start', 'stop', 'restart'], true)) {
