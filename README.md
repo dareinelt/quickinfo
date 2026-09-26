@@ -21,6 +21,12 @@ Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend �
   Temperatur-Sensoren sowie die zugehörige Anzeige und der Verlaufsgraph automatisch deaktiviert
 - **REST-API für ein Management-Board** (`/api/v1/…`): schreibgeschützte JSON-Endpunkte mit
   Bearer-Token-Authentifizierung, konfigurierbarem CORS und Schlüsselverwaltung im Admin-Panel
+- **Docker-Host-Überwachung**: optionaler Container-Tab auf der Hauptseite. Läuft quickinfo
+  auf einem Docker-Host, werden die SSH-Zugangsdaten (Passwort **oder** privater SSH-Key)
+  AES-256-GCM-verschlüsselt in der Datenbank hinterlegt. Der Container-Tab zeigt alle
+  Container (inkl. gestoppter), je Container Auslastung (CPU, RAM, Netz, Block-I/O, PIDs),
+  Mounts/Volumes, Netzwerkkonfiguration, Port-Weiterleitungen und die letzten Log-Einträge;
+  Container lassen sich starten/stoppen/neu starten und mit eigenen Notizen versehen.
 
 ## Installation (One-Liner)
 
@@ -33,7 +39,8 @@ git clone https://github.com/dareinelt/quickinfo quickinfo && cd quickinfo && su
 `install.sh` erledigt:
 
 1. `apt`-Installation von `nginx`, `php-fpm`, `php-mysql`, `mysql-server` (Fallback MariaDB),
-   `lm-sensors` (inkl. `sensors-detect --auto`) und `sysstat`
+   `lm-sensors` (inkl. `sensors-detect --auto`), `sysstat` und `sshpass`
+   (für die Docker-Passwort-Authentifizierung über SSH)
 2. Self-Signed-Zertifikat (10 Jahre, SAN mit Hostname & IP), Nginx mit HTTP→HTTPS-Redirect
    und PHP-FPM-Anbindung
 3. Datenbank, DB-Benutzer, Schema (`db.sql`) und Admin-Benutzer mit zufälligem Passwort
@@ -41,6 +48,9 @@ git clone https://github.com/dareinelt/quickinfo quickinfo && cd quickinfo && su
 4. Collector als systemd-Timer (minütlich), Dateirechte für `/var/www/html/quickinfo`
 5. Erster API-Schlüssel für das Management-Board (wird am Ende einmalig ausgegeben; bei
    erneutem Lauf bleibt der vorhandene Schlüssel erhalten, `QI_ROTATE_API_KEY=1` erzwingt Rotation)
+6. Zufälliger Verschlüsselungsschlüssel für die Docker-Zugangsdaten
+   (`docker.encryption_key` in `/etc/quickinfo/config.php`; bei Updates wird ein vorhandener
+   Schlüssel wiederverwendet)
 
 Danach: `https://<server-ip>` aufrufen, Zertifikatswarnung bestätigen, mit `admin` anmelden.
 
@@ -59,6 +69,7 @@ bin/apikey.php          API-Schlüssel per CLI verwalten (status | ensure | rota
 src/bootstrap.php       Konfiguration, PDO, Hilfsfunktionen
 src/auth.php            Session-Login, CSRF, Throttling
 src/apikey.php          API-Schlüssel: Erzeugung, Hashing, Prüfung, Throttling, CORS
+src/docker.php          Docker-Host-Modul: Verschlüsselung, SSH-Ausführung, Container/Volumes/Netzwerke/Logs/Notizen
 src/api.php             REST-Endpunkte (Web-Frontend, Session-basiert)
 src/api_v1.php          Öffentliche Read-Only-API /api/v1/* (Bearer-Token)
 public/index.html       Single-Page-Frontend
@@ -83,6 +94,17 @@ public/api/index.php    API-Einstiegspunkt (einzige PHP-Datei im Webroot)
 | GET | `/api/apikey` | Metadaten des API-Schlüssels, Pairing-Infos |
 | POST | `/api/apikey/rotate` | Neuen API-Schlüssel erzeugen (Klartext einmalig in der Antwort) |
 | DELETE | `/api/apikey` | API-Schlüssel widerrufen |
+| GET | `/api/docker/config` | Öffentliche Docker-Konfiguration (ohne Secrets, mit `has_password`/`has_private_key`) |
+| PUT | `/api/docker/config` | Docker-Einstellungen speichern; bei aktivem Host Verbindung prüfen (`status: ok|unreachable`) |
+| GET | `/api/docker/status` | Erreichbarkeit des Docker-Hosts prüfen (`{ok: bool}`) |
+| GET | `/api/docker/containers` | Alle Container (`{containers: [{id, name, image, state, status, ports}]}`) |
+| GET | `/api/docker/containers/{name}` | Detail inkl. Mounts, Netzwerke, Ports, Labels und Notiz |
+| GET | `/api/docker/containers/{name}/stats` | Live-Auslastung (CPU, RAM, RAM %, Netz, Block-I/O, PIDs) |
+| GET | `/api/docker/containers/{name}/logs?lines=N` | Letzte Log-Zeilen (max. 1000) |
+| PUT | `/api/docker/containers/{name}/note` | `{note}` – Notiz zum Container speichern |
+| POST | `/api/docker/containers/{name}/{start\|stop\|restart}` | Container steuern |
+| GET | `/api/docker/volumes` | Volumes auflisten |
+| GET | `/api/docker/networks` | Netzwerke auflisten |
 
 Alle Endpunkte außer `session` und `login` erfordern eine Sitzung; schreibende Anfragen
 zusätzlich den Header `X-CSRF-Token`.
@@ -120,11 +142,41 @@ in `/etc/quickinfo/config.php` konkrete Origins hinterlegen, z. B.
 hinterlegen. Nach einer Rotation wird der alte Schlüssel sofort ungültig und das Board muss
 mit dem neuen Schlüssel neu gekoppelt werden.
 
+## Docker-Host
+
+Unter **Einstellungen → Docker** lässt sich der Host als Docker-Host markieren und die
+SSH-Verbindung hinterlegen:
+
+- **SSH-Host / -Port / -Benutzer** des Docker-Hosts
+- **Authentifizierung**: Passwort (benötigt `sshpass`) oder privater SSH-Key
+- **Verbindung testen** prüft SSH und `docker version` auf dem entfernten Host
+
+Die Zugangsdaten werden **AES-256-GCM-verschlüsselt** (Tabelle `docker_host`, Spalten
+`password_enc` / `private_key_enc`) gespeichert. Der Schlüssel wird aus
+`docker.encryption_key` in `/etc/quickinfo/config.php` abgeleitet (SHA-256 → 32 Byte);
+`install.sh` erzeugt ihn automatisch. Ist der Schlüssel leer, greift eine deterministische
+Fallback-Ableitung aus dem Installationspfad, damit vorhandene Daten lesbar bleiben.
+Leer gelassene Passwort-/Key-Felder im Formular bedeuten „bestehenden Wert beibehalten“.
+
+Ist der Host aktiviert, wird die Hauptseite in zwei Tabs geteilt:
+
+- **Info** – die bisherigen Kennzahlen, Verlaufsgraphen und Dienste
+- **Container** – Liste aller Container; beim Auswählen: Start/Stop/Restart,
+  Live-Auslastung (CPU, RAM, Netz, Block-I/O, PIDs), Mounts/Volumes, Netzwerke,
+  Port-Weiterleitungen, letzte Log-Einträge (wählbare Zeilenzahl) und eine frei
+  editierbare Notiz je Container
+
+Alle Docker-Kommandos werden **remote per SSH** auf dem Ziel-Host ausgeführt
+(`ssh … docker …`). Das lokale `docker`-CLI wird nicht verwendet. Container-Notizen werden
+lokal in der Tabelle `docker_container_notes` (Schlüssel: Container-Name) gespeichert.
+
 ## Datenhaltung
 
 - `metrics`: Rohdaten in Minutenauflösung, Retention 4 Tage
 - `metrics_agg`: 10-Minuten-Buckets (avg/min/max), Retention 30 Tage
 - `service_log`: Dienststatus pro Minute, Retention 30 Tage
+- `docker_host`: Singleton-Zeile (id = 1) mit Aktivierung und verschlüsselten SSH-Zugangsdaten
+- `docker_container_notes`: Container-Notizen (Primärschlüssel: Container-Name)
 
 Die Wartung läuft automatisch einmal pro Stunde im Collector. Manuell:
 

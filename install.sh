@@ -50,7 +50,7 @@ randpw() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "${1:-24}"; ec
 step "Pakete installieren"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq nginx php-fpm php-mysql php-cli php-json php-mbstring lm-sensors sysstat openssl ca-certificates >/dev/null
+apt-get install -y -qq nginx php-fpm php-mysql php-cli php-json php-mbstring lm-sensors sysstat openssl ca-certificates sshpass >/dev/null
 if ! apt-get install -y -qq mysql-server >/dev/null 2>&1; then
     warn "mysql-server nicht verfügbar – installiere mariadb-server"
     apt-get install -y -qq mariadb-server >/dev/null
@@ -169,6 +169,9 @@ for o in "${CORS_ARR[@]}"; do
     [[ -n "${o}" ]] || continue
     CORS_PHP="${CORS_PHP}${CORS_PHP:+, }'${o}'"
 done
+# Verschlüsselungsschlüssel für Docker-Zugangsdaten: bei Updates weiterverwenden
+DOCKER_KEY="$(php -r '$c = require $argv[1]; echo $c["docker"]["encryption_key"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
+[[ -n "${DOCKER_KEY}" ]] || DOCKER_KEY="$(randpw 32)"
 cat > "${CONF_FILE}" <<PHP
 <?php
 // quickinfo – automatisch erzeugt von install.sh am $(date -Is)
@@ -203,6 +206,9 @@ return [
         'cors_origins'    => [${CORS_PHP}],
         'max_failures'    => 10,
         'lockout_seconds' => 300,
+    ],
+    'docker' => [
+        'encryption_key' => '${DOCKER_KEY}',
     ],
 ];
 PHP

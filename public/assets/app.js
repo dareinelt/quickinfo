@@ -21,6 +21,13 @@
     availableUnits: null,
     apiKey: null,
     system: null,
+    docker: {
+      config: null,
+      containers: [],
+      selected: null,
+      detail: null,
+      stats: null,
+    },
   };
 
   // ---------------------------------------------------------------------
@@ -139,6 +146,7 @@
     initCharts();
     setRange(state.range, false);
     refreshAll();
+    loadDockerConfig();
     startAutoRefresh();
   }
 
@@ -167,6 +175,7 @@
       state.history = history;
       renderOverview();
       renderCharts();
+      if (dockerEnabled() && !$('#panel-docker').classList.contains('hidden')) refreshDocker();
     } catch (e) {
       if (e.status !== 401) toast('Aktualisierung fehlgeschlagen: ' + e.message, 'danger');
     } finally {
@@ -421,10 +430,11 @@
   }
 
   function switchTab(tab) {
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
-    $$('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
+    $$('#modal-settings .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    $$('#modal-settings .tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
     if (tab === 'api') loadApiKeyInfo();
     if (tab === 'system') renderSystemForm(state.system);
+    if (tab === 'docker') { loadDockerConfig().then(renderDockerForm); }
   }
 
   async function loadAvailableUnits() {
@@ -702,6 +712,384 @@
   }
 
   // ---------------------------------------------------------------------
+  // Docker
+  // ---------------------------------------------------------------------
+  function dockerEnabled() {
+    return !!(state.docker.config && state.docker.config.enabled);
+  }
+
+  async function loadDockerConfig() {
+    try {
+      state.docker.config = await api('docker/config');
+    } catch (e) {
+      if (e.status !== 401) state.docker.config = null;
+    }
+    applyDockerConfig();
+  }
+
+  function applyDockerConfig() {
+    const cfg = state.docker.config;
+    const enabled = !!(cfg && cfg.enabled);
+    const tabBtn = $('#tab-btn-docker');
+    if (tabBtn) tabBtn.classList.toggle('hidden', !enabled);
+    const hostLabel = $('#docker-host-label');
+    if (hostLabel) hostLabel.textContent = enabled && cfg.host ? `${cfg.username || 'root'}@${cfg.host}:${cfg.port || 22}` : '';
+    if (!enabled) switchMainTab('info', false);
+  }
+
+  function switchMainTab(tab, refresh = true) {
+    const valid = ['info', 'docker'];
+    if (!valid.includes(tab)) tab = 'info';
+    $$('.main-tabs .tab').forEach((t) => {
+      const active = t.dataset.maintab === tab;
+      t.classList.toggle('active', active);
+      t.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    $$('.main-tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panelMain !== tab));
+    if (tab === 'docker' && refresh && dockerEnabled()) refreshDocker();
+  }
+
+  async function refreshDocker() {
+    if (!dockerEnabled()) return;
+    const btn = $('#btn-docker-refresh');
+    const dot = $('#docker-status-dot');
+    const txt = $('#docker-status-text');
+    if (btn) btn.disabled = true;
+    try {
+      const { containers } = await api('docker/containers');
+      state.docker.containers = containers || [];
+      renderDockerList();
+      if (dot) dot.className = 'dot ok';
+      if (txt) txt.textContent = `${(containers || []).length} Container`;
+    } catch (e) {
+      if (dot) dot.className = 'dot danger';
+      if (txt) txt.textContent = e.message;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderDockerList() {
+    const wrap = $('#docker-list');
+    if (!wrap) return;
+    wrap.textContent = '';
+    const list = state.docker.containers || [];
+    if (!list.length) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = 'Keine Container gefunden.';
+      wrap.appendChild(p);
+      return;
+    }
+    for (const c of list) {
+      const el = document.createElement('div');
+      el.className = 'docker-item' + (c.name === state.docker.selected ? ' active' : '');
+      const dot = document.createElement('span');
+      dot.className = 'dot ' + (c.state === 'running' ? 'ok' : c.state === 'exited' || c.state === 'dead' ? 'danger' : '');
+      const info = document.createElement('div');
+      info.className = 'docker-item-info';
+      const name = document.createElement('div');
+      name.className = 'docker-item-name';
+      name.textContent = c.name;
+      const image = document.createElement('div');
+      image.className = 'docker-item-image';
+      image.textContent = c.image || '';
+      const st = document.createElement('div');
+      st.className = 'docker-item-state';
+      st.textContent = c.status || c.state;
+      info.appendChild(name); info.appendChild(image); info.appendChild(st);
+      el.appendChild(dot); el.appendChild(info);
+      el.addEventListener('click', () => selectDockerContainer(c.name));
+      wrap.appendChild(el);
+    }
+  }
+
+  async function selectDockerContainer(name) {
+    if (!name) return;
+    state.docker.selected = name;
+    renderDockerList();
+    const emptyEl = $('#docker-empty');
+    if (emptyEl) emptyEl.hidden = true;
+    const detailEl = $('#docker-detail');
+    if (detailEl) detailEl.hidden = false;
+    const nameEl = $('#docker-detail-name');
+    if (nameEl) nameEl.textContent = name;
+    const metaEl = $('#docker-detail-meta');
+    if (metaEl) metaEl.textContent = 'Lade …';
+    ['docker-stats', 'docker-mounts', 'docker-networks', 'docker-ports'].forEach((id) => { const n = $('#' + id); if (n) n.textContent = ''; });
+    const pre = $('#docker-logs'); if (pre) { pre.textContent = ''; pre.classList.remove('empty'); }
+    const note = $('#docker-note'); if (note) note.value = '';
+    const noteMeta = $('#docker-note-meta'); if (noteMeta) noteMeta.textContent = '';
+    setDockerButtons(false);
+    try {
+      const [detail, stats] = await Promise.all([
+        api('docker/containers/' + encodeURIComponent(name)),
+        api('docker/containers/' + encodeURIComponent(name) + '/stats'),
+      ]);
+      state.docker.detail = detail;
+      state.docker.stats = stats;
+      renderDockerDetail();
+    } catch (e) {
+      if (metaEl) metaEl.textContent = e.message;
+    }
+  }
+
+  function renderDockerDetail() {
+    const d = state.docker.detail;
+    const s = state.docker.stats;
+    if (!d) return;
+    const running = d.running === true;
+    const nameEl = $('#docker-detail-name');
+    if (nameEl) nameEl.textContent = (d.name || state.docker.selected).replace(/^\//, '');
+    const metaEl = $('#docker-detail-meta');
+    if (metaEl) {
+      const meta = [];
+      if (d.compose_project) meta.push('Compose: ' + d.compose_project + (d.compose_service ? '/' + d.compose_service : ''));
+      if (d.image) meta.push(d.image);
+      if (d.status) meta.push(d.status);
+      metaEl.textContent = meta.join(' · ');
+    }
+    setDockerButtons(true, running);
+
+    const wrap = $('#docker-stats');
+    if (wrap) {
+      wrap.textContent = '';
+      const stats = [
+        ['CPU', s && s.cpu != null ? s.cpu : '–'],
+        ['RAM', s && s.memory != null ? s.memory : '–'],
+        ['RAM %', s && s.memory_percent != null ? s.memory_percent : '–'],
+        ['Netzwerk', s && s.network_io != null ? s.network_io : '–'],
+        ['Block I/O', s && s.block_io != null ? s.block_io : '–'],
+        ['PIDs', s && s.pids != null ? s.pids : '–'],
+      ];
+      for (const [label, value] of stats) {
+        const box = document.createElement('div');
+        box.className = 'docker-stat';
+        const l = document.createElement('div'); l.className = 'docker-stat-label'; l.textContent = label;
+        const v = document.createElement('div'); v.className = 'docker-stat-value'; v.textContent = value;
+        box.appendChild(l); box.appendChild(v);
+        wrap.appendChild(box);
+      }
+    }
+
+    const mounts = $('#docker-mounts');
+    if (mounts) {
+      mounts.textContent = '';
+      const mList = d.mounts || [];
+      if (!mList.length) {
+        mounts.appendChild(kvEmpty('Keine Mounts / Volumes.'));
+      } else {
+        for (const m of mList) {
+          const row = document.createElement('div');
+          row.className = 'kv-row';
+          const k = document.createElement('div'); k.className = 'k';
+          k.textContent = m.destination || m.name || m.type;
+          const v = document.createElement('div'); v.className = 'v';
+          const parts = [m.type];
+          if (m.name) parts.push(m.name);
+          if (m.source && m.source !== m.name) parts.push(m.source);
+          parts.push(m.rw === false ? 'ro' : 'rw');
+          if (m.mode) parts.push(m.mode);
+          v.textContent = parts.join(' · ');
+          row.appendChild(k); row.appendChild(v);
+          mounts.appendChild(row);
+        }
+      }
+    }
+
+    const nets = $('#docker-networks');
+    if (nets) {
+      nets.textContent = '';
+      const nList = d.networks || [];
+      const pList = d.ports || [];
+      if (!nList.length && !pList.length) {
+        nets.appendChild(kvEmpty('Keine Netzwerke oder Port-Weiterleitungen.'));
+      } else {
+        for (const n of nList) {
+          const row = document.createElement('div');
+          row.className = 'kv-row';
+          const k = document.createElement('div'); k.className = 'k'; k.textContent = n.name;
+          const v = document.createElement('div'); v.className = 'v';
+          const parts = ['IP ' + (n.ip || '–')];
+          if (n.gateway) parts.push('Gateway ' + n.gateway);
+          if (n.mac) parts.push('MAC ' + n.mac);
+          v.textContent = parts.join(' · ');
+          row.appendChild(k); row.appendChild(v);
+          nets.appendChild(row);
+        }
+        for (const p of pList) {
+          const row = document.createElement('div');
+          row.className = 'kv-row';
+          const k = document.createElement('div'); k.className = 'k';
+          k.textContent = `Port ${p.container || '–'}`;
+          const v = document.createElement('div'); v.className = 'v';
+          v.textContent = `${p.host_ip || '0.0.0.0'}:${p.host_port || ''} → ${p.container || '–'}${p.protocol ? ' (' + p.protocol + ')' : ''}`;
+          row.appendChild(k); row.appendChild(v);
+          nets.appendChild(row);
+        }
+      }
+    }
+
+    const note = $('#docker-note');
+    if (note) note.value = d.note || '';
+    const noteMeta = $('#docker-note-meta');
+    if (noteMeta) noteMeta.textContent = d.note_updated_at ? 'Zuletzt gespeichert ' + fmtDateTime(d.note_updated_at) : '';
+  }
+
+  function kvEmpty(text) {
+    const d = document.createElement('div');
+    d.className = 'kv-empty';
+    d.textContent = text;
+    return d;
+  }
+
+  function setDockerButtons(hasDetail, running) {
+    const start = $('#btn-docker-start'), stop = $('#btn-docker-stop'), restart = $('#btn-docker-restart');
+    if (start) start.disabled = !hasDetail || !!running;
+    if (stop) stop.disabled = !hasDetail || !running;
+    if (restart) restart.disabled = !hasDetail;
+  }
+
+  async function dockerAction(action) {
+    const name = state.docker.selected;
+    if (!name) return;
+    const btn = action === 'start' ? $('#btn-docker-start') : action === 'stop' ? $('#btn-docker-stop') : $('#btn-docker-restart');
+    if (btn) btn.disabled = true;
+    try {
+      await api('docker/containers/' + encodeURIComponent(name) + '/' + action, { method: 'POST' });
+      toast(`Container ${action === 'restart' ? 'neu gestartet' : action === 'start' ? 'gestartet' : 'gestoppt'}`, 'ok');
+      await refreshDocker();
+      await selectDockerContainer(name);
+    } catch (e) {
+      toast(e.message, 'danger');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function dockerLoadLogs() {
+    const name = state.docker.selected;
+    if (!name) return;
+    const lines = $('#docker-log-lines').value;
+    const pre = $('#docker-logs');
+    if (pre) pre.textContent = 'Lade Logs …';
+    try {
+      const { logs } = await api('docker/containers/' + encodeURIComponent(name) + '/logs?lines=' + encodeURIComponent(lines));
+      if (pre) {
+        pre.textContent = (logs && logs.length) ? logs.join('\n') : '(keine Log-Einträge)';
+        pre.classList.toggle('empty', !logs || !logs.length);
+      }
+    } catch (e) {
+      if (pre) pre.textContent = 'Fehler: ' + e.message;
+    }
+  }
+
+  async function dockerSaveNote() {
+    const name = state.docker.selected;
+    if (!name) return;
+    const note = $('#docker-note').value;
+    const btn = $('#btn-docker-note-save');
+    if (btn) btn.disabled = true;
+    try {
+      await api('docker/containers/' + encodeURIComponent(name) + '/note', { method: 'PUT', body: { note } });
+      if (state.docker.detail) {
+        state.docker.detail.note = note;
+        state.docker.detail.note_updated_at = Math.floor(Date.now() / 1000);
+      }
+      const noteMeta = $('#docker-note-meta');
+      if (noteMeta) noteMeta.textContent = 'Zuletzt gespeichert ' + fmtDateTime(Math.floor(Date.now() / 1000));
+      toast('Notiz gespeichert', 'ok');
+    } catch (e) {
+      toast(e.message, 'danger');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderDockerForm() {
+    const cfg = state.docker.config || {};
+    const enabled = $('#docker-enabled'); if (enabled) enabled.checked = !!cfg.enabled;
+    const host = $('#docker-host'); if (host) host.value = cfg.host || '';
+    const port = $('#docker-port'); if (port) port.value = cfg.port || 22;
+    const username = $('#docker-username'); if (username) username.value = cfg.username || '';
+    const authType = $('#docker-auth-type'); if (authType) authType.value = cfg.auth_type || 'password';
+    const pw = $('#docker-password'); if (pw) { pw.value = ''; pw.placeholder = cfg.has_password ? 'gesetzt – leer lassen zum Beibehalten' : ''; }
+    const key = $('#docker-private-key'); if (key) { key.value = ''; key.placeholder = cfg.has_private_key ? 'gesetzt – leer lassen zum Beibehalten' : ''; }
+    applyDockerFieldVisibility();
+  }
+
+  function applyDockerFieldVisibility() {
+    const enabled = $('#docker-enabled');
+    const fields = $('#docker-fields');
+    if (fields) fields.hidden = !(enabled && enabled.checked);
+    const keyAuth = $('#docker-auth-type') && $('#docker-auth-type').value === 'key';
+    const pwRow = $('#docker-auth-password'); if (pwRow) pwRow.hidden = !!keyAuth;
+    const keyRow = $('#docker-auth-key'); if (keyRow) keyRow.hidden = !keyAuth;
+  }
+
+  function dockerFormBody() {
+    const body = {
+      enabled: $('#docker-enabled').checked,
+      host: $('#docker-host').value.trim(),
+      port: parseInt($('#docker-port').value, 10) || 22,
+      username: $('#docker-username').value.trim(),
+      auth_type: $('#docker-auth-type').value,
+    };
+    if (body.auth_type === 'password' && $('#docker-password').value) body.password = $('#docker-password').value;
+    if (body.auth_type === 'key' && $('#docker-private-key').value.trim()) body.private_key = $('#docker-private-key').value.trim();
+    return body;
+  }
+
+  async function onDockerSave(ev) {
+    if (ev) ev.preventDefault();
+    const msg = $('#docker-msg');
+    const statusMsg = $('#docker-status-msg');
+    if (msg) { msg.hidden = true; msg.classList.remove('ok'); }
+    if (statusMsg) statusMsg.hidden = true;
+    const btn = ev && ev.target ? ev.target.querySelector('button[type="submit"]') : null;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api('docker/config', { method: 'PUT', body: dockerFormBody() });
+      state.docker.config = res;
+      if (msg) { msg.textContent = 'Docker-Einstellungen gespeichert.'; msg.classList.add('ok'); msg.hidden = false; }
+      if (statusMsg) {
+        statusMsg.textContent = res.status === 'ok' ? 'Verbindung zum Docker-Host erfolgreich.' : 'Gespeichert, aber der Docker-Host ist nicht erreichbar.';
+        statusMsg.hidden = false;
+      }
+      applyDockerConfig();
+      renderDockerForm();
+      if (res.enabled) switchMainTab('docker');
+      toast('Docker-Einstellungen gespeichert', 'ok');
+      return true;
+    } catch (e) {
+      if (msg) { msg.textContent = e.message; msg.hidden = false; }
+      return false;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function onDockerTest() {
+    const statusMsg = $('#docker-status-msg');
+    const btn = $('#btn-docker-test');
+    if (btn) btn.disabled = true;
+    if (statusMsg) { statusMsg.textContent = 'Einstellungen werden gespeichert und Verbindung getestet …'; statusMsg.hidden = false; }
+    const saved = await onDockerSave(null);
+    if (!saved) {
+      if (btn) btn.disabled = false;
+      return;
+    }
+    try {
+      const { ok } = await api('docker/status');
+      if (statusMsg) statusMsg.textContent = ok ? 'Docker-Host ist erreichbar.' : 'Docker-Host nicht erreichbar.';
+    } catch (e) {
+      if (statusMsg) statusMsg.textContent = 'Fehler: ' + e.message;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Login / Logout
   // ---------------------------------------------------------------------
   async function onLogin(ev) {
@@ -751,13 +1139,38 @@
       renderCharts();
     });
     $$('#modal-settings [data-close]').forEach((el) => el.addEventListener('click', closeSettings));
-    $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+    $$('#modal-settings .tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+    $$('.main-tabs .tab').forEach((t) => t.addEventListener('click', () => switchMainTab(t.dataset.maintab)));
     $('#service-add-form').addEventListener('submit', onAddService);
     $('#password-form').addEventListener('submit', onChangePassword);
     $('#system-form').addEventListener('submit', onSystemSave);
     $('#btn-api-rotate').addEventListener('click', onRotateApiKey);
     $('#btn-api-revoke').addEventListener('click', onRevokeApiKey);
     $('#btn-api-copy').addEventListener('click', onCopyApiKey);
+
+    // Docker
+    const dockerForm = $('#docker-form');
+    if (dockerForm) {
+      dockerForm.addEventListener('submit', onDockerSave);
+      const dockerEnabled = $('#docker-enabled');
+      if (dockerEnabled) dockerEnabled.addEventListener('change', applyDockerFieldVisibility);
+      const dockerAuthType = $('#docker-auth-type');
+      if (dockerAuthType) dockerAuthType.addEventListener('change', applyDockerFieldVisibility);
+    }
+    const btnDockerTest = $('#btn-docker-test');
+    if (btnDockerTest) btnDockerTest.addEventListener('click', onDockerTest);
+    const btnDockerRefresh = $('#btn-docker-refresh');
+    if (btnDockerRefresh) btnDockerRefresh.addEventListener('click', refreshDocker);
+    const btnDockerStart = $('#btn-docker-start');
+    if (btnDockerStart) btnDockerStart.addEventListener('click', () => dockerAction('start'));
+    const btnDockerStop = $('#btn-docker-stop');
+    if (btnDockerStop) btnDockerStop.addEventListener('click', () => dockerAction('stop'));
+    const btnDockerRestart = $('#btn-docker-restart');
+    if (btnDockerRestart) btnDockerRestart.addEventListener('click', () => dockerAction('restart'));
+    const btnDockerLogs = $('#btn-docker-logs');
+    if (btnDockerLogs) btnDockerLogs.addEventListener('click', dockerLoadLogs);
+    const btnDockerNote = $('#btn-docker-note-save');
+    if (btnDockerNote) btnDockerNote.addEventListener('click', dockerSaveNote);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('#modal-settings').classList.contains('hidden')) closeSettings();
       if (!$('#view-app').classList.contains('hidden') && !e.metaKey && !e.ctrlKey && !e.altKey) {
