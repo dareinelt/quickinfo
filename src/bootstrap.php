@@ -43,6 +43,7 @@ function qi_merge_defaults(array $cfg): array
         'collector' => ['root_fs' => '/', 'cpu_sample_ms' => 1000, 'nvidia_smi' => 'nvidia-smi', 'sensors' => 'sensors'],
         'auth' => ['max_attempts' => 5, 'lockout_seconds' => 900, 'session_lifetime' => 43200, 'session_name' => 'quickinfo_sid'],
         'api'  => ['cors_origins' => ['*'], 'max_failures' => 10, 'lockout_seconds' => 300],
+        'docker' => ['encryption_key' => ''],
     ];
     foreach ($defaults as $section => $values) {
         $cfg[$section] = array_merge($values, $cfg[$section] ?? []);

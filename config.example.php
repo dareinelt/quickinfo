@@ -49,4 +49,11 @@ return [
         'max_failures'    => 10,
         'lockout_seconds' => 300,
     ],
+
+    // Docker-Host (optional). SSH-Zugangsdaten werden AES-256-GCM-verschlüsselt
+    // in der Datenbank abgelegt. Der Schlüssel sollte NICHT leer bleiben –
+    // install.sh erzeugt automatisch einen zufälligen Wert.
+    'docker' => [
+        'encryption_key' => '',
+    ],
 ];

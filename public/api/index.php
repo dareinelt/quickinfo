@@ -12,6 +12,7 @@ require dirname(__DIR__, 2) . '/src/bootstrap.php';
 require dirname(__DIR__, 2) . '/src/auth.php';
 require dirname(__DIR__, 2) . '/src/apikey.php';
 require dirname(__DIR__, 2) . '/src/api_v1.php';
+require dirname(__DIR__, 2) . '/src/docker.php';
 require dirname(__DIR__, 2) . '/src/api.php';
 
 set_exception_handler(static function (Throwable $e): void {

@@ -94,6 +94,29 @@ CREATE TABLE IF NOT EXISTS api_keys (
     UNIQUE KEY uq_api_keys_hash (key_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Docker-Host: Zugangsdaten werden AES-256-GCM-verschlüsselt abgelegt (Schlüssel aus
+-- der Konfiguration `docker.encryption_key`). Es existiert genau eine Zeile (id = 1).
+CREATE TABLE IF NOT EXISTS docker_host (
+    id               INT UNSIGNED NOT NULL,
+    enabled          TINYINT(1)   NOT NULL DEFAULT 0,
+    host             VARCHAR(255) NOT NULL DEFAULT '',
+    port             SMALLINT UNSIGNED NOT NULL DEFAULT 22,
+    username         VARCHAR(128) NOT NULL DEFAULT '',
+    auth_type        ENUM('password','key') NOT NULL DEFAULT 'password',
+    password_enc     VARCHAR(1024) NULL,
+    private_key_enc  MEDIUMTEXT   NULL,
+    updated_at       INT UNSIGNED NOT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Freitext-Notizen zu einzelnen Docker-Containern (Schlüssel: Container-Name).
+CREATE TABLE IF NOT EXISTS docker_container_notes (
+    container_name  VARCHAR(255) NOT NULL,
+    note            TEXT NOT NULL,
+    updated_at      INT UNSIGNED NOT NULL,
+    PRIMARY KEY (container_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Standard-Dienste (weitere werden von install.sh bzw. über das Web-Frontend ergänzt)
 INSERT IGNORE INTO services (name, display_name, sort_order, created_at) VALUES
     ('ssh',   'SSH',   10, UNIX_TIMESTAMP()),

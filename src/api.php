@@ -116,6 +116,34 @@ function qi_api_dispatch(): never
         case $resource === 'system' && $method === 'POST':
             qi_require_auth();
             qi_api_system_update();
+
+        case $resource === 'docker' && $id === 'config' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(qi_docker_config_public());
+
+        case $resource === 'docker' && $id === 'config' && $method === 'PUT':
+            qi_require_auth();
+            qi_api_docker_save();
+
+        case $resource === 'docker' && $id === 'status' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(['ok' => qi_docker_ping()]);
+
+        case $resource === 'docker' && $id === 'containers' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(['containers' => qi_docker_containers()]);
+
+        case $resource === 'docker' && $id === 'volumes' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(['volumes' => qi_docker_volumes()]);
+
+        case $resource === 'docker' && $id === 'networks' && $method === 'GET':
+            qi_require_auth();
+            qi_json_response(['networks' => qi_docker_networks()]);
+
+        case $resource === 'docker' && $id === 'containers':
+            qi_require_auth();
+            qi_api_docker_container(array_slice($parts, 2), $method);
     }
 
     qi_json_error('Endpunkt nicht gefunden.', 404);
@@ -501,4 +529,103 @@ function qi_history_build(string $range): array
         'now'    => $now,
         'series' => $out,
     ];
+}
+
+/**
+ * Speichert die Docker-Host-Konfiguration. Erwartet JSON-Body.
+ */
+function qi_api_docker_save(): never
+{
+    $body = qi_request_json();
+    $host = trim((string)($body['host'] ?? ''));
+    $port = (int)($body['port'] ?? 22);
+    $username = trim((string)($body['username'] ?? ''));
+
+    if (($body['enabled'] ?? false) && ($host === '' || $username === '')) {
+        qi_json_error('Host und Benutzername sind erforderlich, wenn Docker aktiviert ist.', 400);
+    }
+    if ($port < 1 || $port > 65535) {
+        qi_json_error('Ungültiger SSH-Port.', 400);
+    }
+    $authType = (string)($body['auth_type'] ?? 'password');
+    if (!in_array($authType, ['password', 'key'], true)) {
+        qi_json_error('Ungültiger Authentifizierungstyp.', 400);
+    }
+
+    try {
+        qi_docker_save($body);
+    } catch (Throwable $e) {
+        qi_json_error('Speichern fehlgeschlagen: ' . $e->getMessage(), 500);
+    }
+
+    // Bei aktiviertem Host Verbindung prüfen (nicht-blockierend fürs Speichern).
+    $ping = false;
+    if (($body['enabled'] ?? false)) {
+        $ping = qi_docker_ping();
+    }
+
+    qi_json_response(['ok' => true, 'status' => $ping ? 'ok' : 'unreachable'] + qi_docker_config_public());
+}
+
+/**
+ * Verteilt Container-Sub-Routen:
+ *   [name]                    GET  → Detail + Notiz
+ *   [name]/stats              GET  → Live-Auslastung
+ *   [name]/logs               GET  → letzte Logzeilen
+ *   [name]/note               GET/PUT
+ *   [name]/start|stop|restart POST
+ *
+ * @param array<int,string> $sub
+ */
+function qi_api_docker_container(array $sub, string $method): never
+{
+    $ref = (string)($sub[0] ?? '');
+    $action = (string)($sub[1] ?? '');
+
+    if ($ref === '') {
+        qi_json_error('Container-Name fehlt.', 400);
+    }
+
+    if ($method === 'GET' && $action === '') {
+        $detail = qi_docker_inspect($ref);
+        if ($detail === null) {
+            qi_json_error('Container nicht gefunden.', 404);
+        }
+        $name = ltrim((string)($detail['name'] ?? $ref), '/');
+        $note = qi_docker_note_row($name);
+        $detail['note'] = $note['note'];
+        $detail['note_updated_at'] = $note['updated_at'];
+        qi_json_response($detail);
+    }
+
+    if ($method === 'GET' && $action === 'stats') {
+        $stats = qi_docker_stats($ref);
+        if ($stats === null) {
+            qi_json_error('Keine Statistik verfügbar.', 404);
+        }
+        qi_json_response($stats);
+    }
+
+    if ($method === 'GET' && $action === 'logs') {
+        $lines = (int)($_GET['lines'] ?? 200);
+        qi_json_response(['logs' => qi_docker_logs($ref, $lines)]);
+    }
+
+    if ($method === 'GET' && $action === 'note') {
+        qi_json_response(['note' => qi_docker_note_get($ref)]);
+    }
+
+    if ($method === 'PUT' && $action === 'note') {
+        $body = qi_request_json();
+        $note = (string)($body['note'] ?? '');
+        qi_docker_note_set($ref, $note);
+        qi_json_response(['ok' => true, 'note' => $note]);
+    }
+
+    if ($method === 'POST' && in_array($action, ['start', 'stop', 'restart'], true)) {
+        qi_docker_action($ref, $action);
+        qi_json_response(['ok' => true]);
+    }
+
+    qi_json_error('Endpunkt nicht gefunden.', 404);
 }
