@@ -20,7 +20,8 @@ declare(strict_types=1);
  *  POST   /api/apikey/rotate        Neuen Schlüssel erzeugen (Klartext einmalig in der Antwort)
  *  DELETE /api/apikey               Schlüssel widerrufen
  *
- *  /api/v1/*                        Öffentliche Read-Only-API (Bearer-Token) → src/api_v1.php
+ *  /api/v1/*                        Öffentliche API (Bearer-Token) → src/api_v1.php
+ *                                   (read-only; Ausnahme: Docker-Container-Aktionen per POST)
  */
 
 const QI_RANGES = [

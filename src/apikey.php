@@ -207,7 +207,7 @@ function qi_api_cors_headers(): bool
         }
     }
     if ($allowed) {
-        header('Access-Control-Allow-Methods: GET, HEAD, OPTIONS');
+        header('Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS');
         header('Access-Control-Allow-Headers: Authorization, X-API-Key, Content-Type, Accept');
         header('Access-Control-Expose-Headers: Retry-After');
         header('Access-Control-Max-Age: 86400');

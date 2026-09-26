@@ -127,6 +127,15 @@ Tabelle `api_keys` gespeichert.
 | GET | `/api/v1/status` | Aktuelle Messwerte: CPU (Auslastung, Kerne, Temperatur), GPU(s), RAM, Speicherplatz `/`, Load, Status aller Dienste |
 | GET | `/api/v1/history?range=1h\|3h\|24h\|3d\|14d[&metrics=cpu.total,temp.max]` | Aggregierte Zeitreihen `{metric: [[ts, value], …]}` |
 | GET | `/api/v1/info` | Hostname, Uptime, Systemzeit, OS/Kernel, CPU-Kerne & -Modell, GPU-Modell |
+| GET | `/api/v1/docker/containers` | Container-Übersicht `{containers: [{id, name, image, state, status, ports}, …]}` |
+| GET | `/api/v1/docker/containers/{name}` | Detail (Inspect): Image, Command, Status, Restart-Policy, Compose-Projekt/-Service, Ports, Mounts, Netzwerke, Labels, Notiz |
+| GET | `/api/v1/docker/containers/{name}/stats` | Live-Auslastung (CPU, RAM, Netz, Block-I/O, PIDs) |
+| POST | `/api/v1/docker/containers/{name}/start\|stop\|restart` | Container-Aktion; liefert `{ok: true}` |
+
+Die Docker-Endpunkte sind nur verfügbar, wenn unter *Einstellungen → Docker-Host* ein Host
+aktiviert und erreichbar ist. Andernfalls antworten sie mit `404` (Modul nicht aktiviert) bzw.
+`502` (Host nicht erreichbar). Die `POST`-Aktionen sind die einzige schreibende Ausnahme der
+sonst schreibgeschützten v1-API.
 
 ```bash
 curl -k -H "Authorization: Bearer qi_…" https://<server-ip>/api/v1/status
