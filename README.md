@@ -67,6 +67,7 @@ db.sql                  Datenbankschema
 config.example.php      Beispielkonfiguration (→ /etc/quickinfo/config.php)
 collector/collector.php Datenerfassung (PHP-CLI, systemd-Timer)
 bin/apikey.php          API-Schlüssel per CLI verwalten (status | ensure | rotate | revoke)
+bin/passwd.php          Passwort eines Benutzers per CLI zurücksetzen
 src/bootstrap.php       Konfiguration, PDO, Hilfsfunktionen
 src/auth.php            Session-Login, CSRF, Throttling
 src/apikey.php          API-Schlüssel: Erzeugung, Hashing, Prüfung, Throttling, CORS
@@ -216,4 +217,33 @@ systemctl status quickinfo-collector.timer
 journalctl -u quickinfo-collector.service -n 50
 tail -f /var/log/nginx/quickinfo.error.log
 php /var/www/html/quickinfo/bin/apikey.php status   # API-Schlüssel prüfen
+```
+
+### Vergessenes Admin-Passwort zurücksetzen
+
+Das Passwort lässt sich direkt auf dem Server per CLI neu setzen (kein MySQL-Wissen nötig):
+
+```bash
+# Benutzer "admin": neues Passwort verdeckt eingeben (mind. 10 Zeichen, wird zweimal abgefragt)
+sudo php /var/www/html/quickinfo/bin/passwd.php
+
+# Anderer Benutzername
+sudo php /var/www/html/quickinfo/bin/passwd.php <benutzer>
+
+# Zufälliges Passwort erzeugen und einmalig ausgeben
+sudo php /var/www/html/quickinfo/bin/passwd.php --random
+
+# Nicht-interaktiv, z. B. aus einem Skript
+printf '%s\n' 'neuesPasswort' | sudo php /var/www/html/quickinfo/bin/passwd.php admin
+```
+
+Der Befehl schreibt einen neuen `password_hash()`-Hash in die Tabelle `users` und hebt
+bestehende Login-Sperren (`login_attempts`) auf. PHP-FPM/Nginx müssen nicht neu gestartet
+werden; bereits angemeldete Sitzungen bleiben bis zum Ablauf gültig.
+
+Ohne das Skript geht es auch direkt über MySQL:
+
+```bash
+NEW_HASH="$(sudo php -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' 'neuesPasswort')"
+sudo mysql quickinfo -e "UPDATE users SET password_hash='${NEW_HASH}' WHERE username='admin';"
 ```
