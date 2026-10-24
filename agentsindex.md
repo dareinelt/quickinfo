@@ -108,6 +108,9 @@ Es gibt keine Unit-Tests und keinen Build-Schritt. Verifikation erfolgt über `p
 │   ├── api.php            # Web-API (Session) inkl. Docker-Handler
 │   ├── api_v1.php         # externe API (Bearer-Token)
 │   └── docker.php         # Docker-Host-Modul (Verschlüsselung, SSH, Container/…)
+├── bin/
+│   ├── apikey.php         # CLI: API-Schlüssel (status | ensure | rotate | revoke)
+│   └── passwd.php         # CLI: Passwort eines Benutzers zurücksetzen
 ├── db.sql                 # Schema (alle Tabellen)
 ├── config.example.php     # Vorlage für /etc/quickinfo/config.php
 ├── install.sh             # Installation (DB, Benutzer, systemd, config.php)
@@ -309,6 +312,15 @@ stdout/stderr non-blockierend mit Timeout und liefert Exit-Code. Frontend ruft
 `install.sh` installiert Pakete (inkl. `sshpass`), legt DB/Benutzer an, generiert
 `DOCKER_KEY` (wiederverwendbar), schreibt `/etc/quickinfo/config.php` und richtet
 systemd-Dienste ein.
+
+### Passwort-Reset (CLI)
+
+`bin/passwd.php` ist das Notfall-Werkzeug bei vergessenem Passwort: liest das neue Passwort
+verdeckt vom Terminal (oder aus stdin bei nicht-interaktiver Ausführung), prüft die
+Mindestlänge (10 Zeichen), schreibt `password_hash()` in `users` und leert
+`login_attempts`. `--random` erzeugt stattdessen ein Zufallspasswort. Verwendet
+`src/bootstrap.php` (`qi_config()`/`qi_db()`), daher gilt dieselbe
+`/etc/quickinfo/config.php` wie für die Web-App.
 
 ---
 
