@@ -5,6 +5,17 @@ declare(strict_types=1);
  * quickinfo – Bootstrap: Konfiguration, Datenbank, Hilfsfunktionen.
  */
 
+if (PHP_VERSION_ID < 80500) {
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, 'quickinfo benötigt PHP 8.5 oder neuer (gefunden: ' . PHP_VERSION . ").\n");
+        exit(1);
+    }
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'quickinfo benötigt PHP 8.5 oder neuer (gefunden: ' . PHP_VERSION . ').';
+    exit;
+}
+
 define('QI_VERSION', '1.1.0');
 define('QI_ROOT', dirname(__DIR__));
 

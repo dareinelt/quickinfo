@@ -31,7 +31,9 @@ Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend �
 
 ## Installation (One-Liner)
 
-Auf einem frischen Ubuntu-Server (20.04 mit PHP ≥ 8.1 Backport, empfohlen 22.04 / 24.04):
+Voraussetzung ist **PHP ≥ 8.5** (CLI + FPM) mit den Erweiterungen `pdo_mysql` und
+`mbstring`. Auf einem frischen Ubuntu-Server (empfohlen 22.04 / 24.04) installiert
+`install.sh` PHP 8.5 bei Bedarf über das PPA `ppa:ondrej/php`:
 
 ```bash
 git clone https://github.com/dareinelt/quickinfo quickinfo && cd quickinfo && sudo bash install.sh
@@ -39,8 +41,9 @@ git clone https://github.com/dareinelt/quickinfo quickinfo && cd quickinfo && su
 
 `install.sh` erledigt:
 
-1. `apt`-Installation von `nginx`, `php-fpm`, `php-mysql`, `mysql-server` (Fallback MariaDB),
-   `lm-sensors` (inkl. `sensors-detect --auto`), `sysstat` und `sshpass`
+1. `apt`-Installation von `nginx`, **PHP 8.5** (`php8.5-fpm`, `php8.5-cli`, `php8.5-mysql`,
+   `php8.5-mbstring`; Paketquelle bei Bedarf `ppa:ondrej/php`), `mysql-server` (Fallback
+   MariaDB), `lm-sensors` (inkl. `sensors-detect --auto`), `sysstat` und `sshpass`
    (für die Docker-Passwort-Authentifizierung über SSH)
 2. Self-Signed-Zertifikat (10 Jahre, SAN mit Hostname & IP), Nginx mit HTTP→HTTPS-Redirect
    und PHP-FPM-Anbindung
