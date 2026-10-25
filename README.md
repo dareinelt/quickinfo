@@ -4,6 +4,8 @@ Schlanke, vollständig offline-fähige Web-Überwachung für Ubuntu Bare-Metal-S
 Natives PHP + MySQL/MariaDB im Backend, Vanilla JS / HTML5 / CSS3 im Frontend –
 **keine Frameworks, keine CDNs, keine externen Schriftarten oder Bibliotheken.**
 
+![quickinfo Dashboard: CPU-Auslastung und -Temperatur pro Kern, NVIDIA GPU, Arbeitsspeicher, Speicherplatz, Status der systemd-Dienste und Verlaufsgraphen](docs/screenshot.png)
+
 ## Funktionen
 
 - **CPU**: Auslastung gesamt & pro Kern, Temperatur pro Kern (hwmon / lm-sensors / thermal_zone)
