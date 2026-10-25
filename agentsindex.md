@@ -22,7 +22,7 @@ Kein PHP-Framework, keine SPA-Frameworks: bewusst einfach gehalten (PHP + MySQL,
 
 ## 2. Technologie-Stack
 
-- **Backend**: PHP 8.x (CLI + FPM), `declare(strict_types=1)`, PDO/MySQL
+- **Backend**: PHP 8.5 (CLI + FPM), `declare(strict_types=1)`, PDO/MySQL
 - **Datenbank**: MySQL/MariaDB (`db.sql`)
 - **Frontend**: Vanilla JS (ES2020+), ein HTML-Dokument (`public/index.html`), CSS in `public/assets/style.css`
 - **Server**: Nginx (Reverse-Proxy + statische Auslieferung), PHP-FPM
@@ -326,7 +326,8 @@ Mindestlänge (10 Zeichen), schreibt `password_hash()` in `users` und leert
 
 ## 12. Konventionen & Coding-Standards
 
-- PHP: `declare(strict_types=1)`, Funktionen als `qi_`-Prefix, keine Klassen/Composer.
+- PHP: Zielversion 8.5 (`PHP_VERSION_ID >= 80500`), `declare(strict_types=1)`, Funktionen
+  als `qi_`-Prefix, keine Klassen/Composer.
 - JSON-Antworten immer über `qi_json_response()`/`qi_json_error()`.
 - Frontend: `$`/`$$` sind dokumentweite Helfer (`document.querySelector[All]`).
 - Tab-/Panel-Selektoren sind gescoped: Haupt-Tabs `data-maintab`/`data-panel-main`,

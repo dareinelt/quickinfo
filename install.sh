@@ -26,6 +26,7 @@ HTTPS_PORT="${QI_HTTPS_PORT:-443}"
 HTTP_PORT="${QI_HTTP_PORT:-80}"
 ROTATE_API_KEY="${QI_ROTATE_API_KEY:-0}"
 CORS_ORIGINS="${QI_CORS_ORIGINS:-*}"     # Komma-getrennt, z.B. "https://board.example.com,http://10.0.0.5"
+PHP_VER_REQUIRED="8.5"                   # von quickinfo vorausgesetzte PHP-Version
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 c_bold=$'\033[1m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_red=$'\033[31m'; c_cyan=$'\033[36m'; c_reset=$'\033[0m'
@@ -50,14 +51,34 @@ randpw() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "${1:-24}"; ec
 step "Pakete installieren"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq nginx php-fpm php-mysql php-cli php-json php-mbstring lm-sensors sysstat openssl ca-certificates sshpass >/dev/null
+# PHP 8.5 ist in den Ubuntu-Standardquellen (22.04/24.04) nicht enthalten → PPA von Ondřej Surý
+if ! apt-cache show "php${PHP_VER_REQUIRED}-fpm" >/dev/null 2>&1; then
+    apt-get install -y -qq software-properties-common >/dev/null
+    if add-apt-repository -y ppa:ondrej/php >/dev/null 2>&1; then
+        apt-get update -qq
+    else
+        warn "ppa:ondrej/php konnte nicht hinzugefügt werden – verwende vorhandene Paketquellen"
+    fi
+fi
+apt-get install -y -qq nginx \
+    "php${PHP_VER_REQUIRED}-fpm" "php${PHP_VER_REQUIRED}-cli" "php${PHP_VER_REQUIRED}-mysql" "php${PHP_VER_REQUIRED}-mbstring" \
+    lm-sensors sysstat openssl ca-certificates sshpass >/dev/null \
+    || die "PHP ${PHP_VER_REQUIRED} konnte nicht installiert werden (Ubuntu: ppa:ondrej/php erforderlich)."
 if ! apt-get install -y -qq mysql-server >/dev/null 2>&1; then
     warn "mysql-server nicht verfügbar – installiere mariadb-server"
     apt-get install -y -qq mariadb-server >/dev/null
 fi
 ok "Pakete installiert"
 
-PHP_VER="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+# CLI-Alternative auf die geforderte Version setzen (collector.service nutzt denselben Interpreter)
+if [[ -x "/usr/bin/php${PHP_VER_REQUIRED}" ]]; then
+    update-alternatives --set php "/usr/bin/php${PHP_VER_REQUIRED}" >/dev/null 2>&1 || true
+fi
+PHP_BIN="$(command -v "php${PHP_VER_REQUIRED}" 2>/dev/null || true)"
+[[ -n "${PHP_BIN}" ]] || die "PHP ${PHP_VER_REQUIRED} (CLI) wurde nicht gefunden."
+PHP_VER="$("${PHP_BIN}" -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+[[ "${PHP_VER}" == "${PHP_VER_REQUIRED}" ]] \
+    || die "PHP ${PHP_VER_REQUIRED} erforderlich, gefunden PHP ${PHP_VER} (${PHP_BIN})."
 PHP_FPM_SERVICE="php${PHP_VER}-fpm"
 PHP_SOCK="/run/php/php${PHP_VER}-fpm.sock"
 ok "PHP ${PHP_VER} (${PHP_FPM_SERVICE})"
@@ -118,8 +139,8 @@ DB_PASS=""
 EXISTING_CORS=""
 if [[ -f "${CONF_FILE}" ]]; then
     # Bestehendes DB-Passwort und CORS-Einstellung aus vorhandener Konfiguration weiterverwenden
-    DB_PASS="$(php -r '$c = require $argv[1]; echo $c["db"]["password"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
-    EXISTING_CORS="$(php -r '$c = require $argv[1]; echo implode(",", (array)($c["api"]["cors_origins"] ?? []));' "${CONF_FILE}" 2>/dev/null || true)"
+    DB_PASS="$("${PHP_BIN}" -r '$c = require $argv[1]; echo $c["db"]["password"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
+    EXISTING_CORS="$("${PHP_BIN}" -r '$c = require $argv[1]; echo implode(",", (array)($c["api"]["cors_origins"] ?? []));' "${CONF_FILE}" 2>/dev/null || true)"
 fi
 [[ -n "${DB_PASS}" ]] || DB_PASS="$(randpw 32)"
 [[ -n "${QI_CORS_ORIGINS:-}" || -z "${EXISTING_CORS}" ]] || CORS_ORIGINS="${EXISTING_CORS}"
@@ -144,7 +165,7 @@ SQL
 
 # Admin-Benutzer mit zufälligem Passwort
 ADMIN_PASS="$(randpw 20)"
-ADMIN_HASH="$(php -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "${ADMIN_PASS}")"
+ADMIN_HASH="$("${PHP_BIN}" -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "${ADMIN_PASS}")"
 mysql --protocol=socket -uroot "${DB_NAME}" <<SQL
 INSERT INTO users (username, password_hash, created_at)
 VALUES ('${ADMIN_USER}', '${ADMIN_HASH}', UNIX_TIMESTAMP())
@@ -170,7 +191,7 @@ for o in "${CORS_ARR[@]}"; do
     CORS_PHP="${CORS_PHP}${CORS_PHP:+, }'${o}'"
 done
 # Verschlüsselungsschlüssel für Docker-Zugangsdaten: bei Updates weiterverwenden
-DOCKER_KEY="$(php -r '$c = require $argv[1]; echo $c["docker"]["encryption_key"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
+DOCKER_KEY="$("${PHP_BIN}" -r '$c = require $argv[1]; echo $c["docker"]["encryption_key"] ?? "";' "${CONF_FILE}" 2>/dev/null || true)"
 [[ -n "${DOCKER_KEY}" ]] || DOCKER_KEY="$(randpw 32)"
 cat > "${CONF_FILE}" <<PHP
 <?php
@@ -224,10 +245,10 @@ ok "Konfiguration geschrieben"
 step "API-Schlüssel (Management-Board)"
 API_KEY=""
 if [[ "${ROTATE_API_KEY}" == "1" ]]; then
-    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" php "${APP_DIR}/bin/apikey.php" rotate --key-only)"
+    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" "${PHP_BIN}" "${APP_DIR}/bin/apikey.php" rotate --key-only)"
     ok "API-Schlüssel neu erzeugt (Rotation erzwungen)"
 else
-    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" php "${APP_DIR}/bin/apikey.php" ensure --key-only)"
+    API_KEY="$(QUICKINFO_CONFIG="${CONF_FILE}" "${PHP_BIN}" "${APP_DIR}/bin/apikey.php" ensure --key-only)"
     if [[ -n "${API_KEY}" ]]; then
         ok "Erster API-Schlüssel erzeugt"
     else
@@ -372,7 +393,7 @@ Type=oneshot
 User=root
 Nice=10
 IOSchedulingClass=idle
-ExecStart=/usr/bin/php ${APP_DIR}/collector/collector.php
+ExecStart=${PHP_BIN} ${APP_DIR}/collector/collector.php
 TimeoutStartSec=90
 UNIT
 
@@ -395,7 +416,7 @@ systemctl enable --now "${APP_NAME}-collector.timer" >/dev/null 2>&1
 ok "Timer ${APP_NAME}-collector.timer aktiv"
 
 # Erste Messung sofort durchführen
-if php "${APP_DIR}/collector/collector.php" --verbose --maintenance; then
+if "${PHP_BIN}" "${APP_DIR}/collector/collector.php" --verbose --maintenance; then
     ok "Erste Messung erfolgreich"
 else
     warn "Erste Messung fehlgeschlagen – bitte 'php ${APP_DIR}/collector/collector.php --verbose' prüfen"
