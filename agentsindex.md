@@ -225,6 +225,10 @@ nicht-GET/HEAD-Anfragen außer `login`. Session-geschützte Routen rufen `qi_req
 | GET | `/api/docker/volumes` | Volumes |
 | GET | `/api/docker/networks` | Netzwerke |
 
+Fehler bei Docker-Operationen (SSH/Docker-CLI) werden in `qi_api_docker_exec()` abgefangen und
+als `502` mit `{"error": "Docker-Host nicht erreichbar: <Ursache>"}` zurückgegeben, damit die
+Oberfläche die echte Ursache statt eines generischen 500 anzeigen kann.
+
 ### Externe API v1 (`/api/v1/*`, Bearer-Token)
 
 Dispatch in `src/api_v1.php` (`qi_api_v1_dispatch()`), Endpunkte in `QI_API_V1_ENDPOINTS`:
