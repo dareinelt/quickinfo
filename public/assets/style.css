@@ -75,6 +75,15 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 2
 .toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; cursor: pointer; user-select: none; }
 .toggle input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 
+/* ---------- Fallback bei Startfehlern ---------- */
+.boot-error {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; padding: 24px;
+  background: var(--bg); text-align: center;
+}
+.boot-error h2 { font-size: 18px; }
+.boot-error p { max-width: 480px; color: var(--text-muted); }
+
 /* ---------- Login ---------- */
 #view-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card {

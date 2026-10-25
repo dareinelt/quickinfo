@@ -224,6 +224,19 @@ tail -f /var/log/nginx/quickinfo.error.log
 php /var/www/html/quickinfo/bin/apikey.php status   # API-Schlüssel prüfen
 ```
 
+### Seite bleibt leer / kein Login-Formular
+
+Bleibt die Seite in einem Browser (typisch: Safari) leer, liegt das fast immer an
+blockierten Website-Daten oder an veralteten Assets aus dem Cache:
+
+- Safari blockiert Website-Daten („Website-Daten blockieren“, „Cross-Site-Tracking
+  verhindern“) → `localStorage` ist gesperrt. Die App startet trotzdem und zeigt das
+  Login-Formular; ein Hinweis erscheint nur, wenn das Skript gar nicht laden konnte.
+- Früher lagen Assets sieben Tage im Browser-Cache, `index.html` wurde heuristisch
+  gecacht. Nach einem Update konnte ein Browser dadurch mit veralteten Dateien laufen.
+  Nginx liefert beides jetzt mit `expires -1` (Revalidierung per ETag) aus – dafür
+  `install.sh` erneut ausführen. Bis dahin hilft ein Hard-Reload.
+
 ### Vergessenes Admin-Passwort zurücksetzen
 
 Das Passwort lässt sich direkt auf dem Server per CLI neu setzen (kein MySQL-Wissen nötig):
