@@ -9,11 +9,28 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // Safari wirft bei blockierten Website-Daten schon beim Lesen von
+  // localStorage eine SecurityError. Das darf den Start der App nicht
+  // verhindern, sonst bleibt die Seite komplett leer.
+  const store = {
+    get(key, fallback) {
+      try {
+        const value = window.localStorage.getItem(key);
+        return value === null ? fallback : value;
+      } catch (_) {
+        return fallback;
+      }
+    },
+    set(key, value) {
+      try { window.localStorage.setItem(key, value); } catch (_) { /* ignorieren */ }
+    },
+  };
+
   const state = {
     csrf: null,
     user: null,
-    range: localStorage.getItem('qi.range') || '3h',
-    showCores: localStorage.getItem('qi.cores') !== '0',
+    range: store.get('qi.range', '3h'),
+    showCores: store.get('qi.cores', '1') !== '0',
     overview: null,
     history: null,
     timer: null,
@@ -112,6 +129,7 @@
 
   function toast(msg, kind = '') {
     const el = $('#toast');
+    if (!el) return;
     el.textContent = msg;
     el.className = 'toast ' + kind;
     clearTimeout(toast._t);
@@ -125,6 +143,8 @@
     const host = $('#login-hostname');
     const desc = $('#login-desc');
     const inv = $('#login-inventory');
+    // Ältere, noch gecachte index.html ohne diese Elemente darf den Login nicht verhindern.
+    if (!host || !desc || !inv) return;
     if (!system) { host.textContent = '–'; desc.hidden = true; inv.hidden = true; return; }
     host.textContent = system.hostname || '–';
     const d = (system.description || '').trim();
@@ -136,16 +156,24 @@
 
   function showLogin() {
     stopAutoRefresh();
-    $('#view-app').classList.add('hidden');
-    $('#view-login').classList.remove('hidden');
+    const app = $('#view-app');
+    const login = $('#view-login');
+    if (!login) return;
+    if (app) app.classList.add('hidden');
+    login.classList.remove('hidden');
     renderLoginSystem(state.system);
-    $('#login-pass').value = '';
-    setTimeout(() => $('#login-user').focus(), 50);
+    const pass = $('#login-pass');
+    if (pass) pass.value = '';
+    const user = $('#login-user');
+    if (user) setTimeout(() => user.focus(), 50);
   }
 
   function showApp() {
-    $('#view-login').classList.add('hidden');
-    $('#view-app').classList.remove('hidden');
+    const login = $('#view-login');
+    const app = $('#view-app');
+    if (!app) return;
+    if (login) login.classList.add('hidden');
+    app.classList.remove('hidden');
     initCharts();
     setRange(state.range, false);
     refreshAll();
@@ -404,7 +432,7 @@
   function setRange(range, reload = true) {
     if (!RANGES.includes(range)) range = '3h';
     state.range = range;
-    localStorage.setItem('qi.range', range);
+    store.set('qi.range', range);
     $$('.range-picker button').forEach((b) => {
       const active = b.dataset.range === range;
       b.classList.toggle('active', active);
@@ -1491,7 +1519,7 @@
     $('#toggle-cores').checked = state.showCores;
     $('#toggle-cores').addEventListener('change', (e) => {
       state.showCores = e.target.checked;
-      localStorage.setItem('qi.cores', state.showCores ? '1' : '0');
+      store.set('qi.cores', state.showCores ? '1' : '0');
       renderCharts();
     });
     $$('#modal-settings [data-close]').forEach((el) => el.addEventListener('click', closeSettings));
@@ -1539,12 +1567,13 @@
   }
 
   async function boot() {
-    bind();
+    try { bind(); } catch (e) { console.error('quickinfo: UI-Initialisierung fehlgeschlagen', e); }
     try {
       const s = await api('session');
       state.csrf = s.csrf;
       state.system = s.system || null;
-      $('#version').textContent = s.version ? 'v' + s.version : '';
+      const ver = $('#version');
+      if (ver) ver.textContent = s.version ? 'v' + s.version : '';
       if (s.authenticated) {
         state.user = s.user;
         showApp();
@@ -1554,6 +1583,8 @@
     } catch (e) {
       showLogin();
       toast('API nicht erreichbar: ' + e.message, 'danger');
+    } finally {
+      document.documentElement.dataset.booted = '1';
     }
   }
 

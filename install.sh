@@ -330,11 +330,18 @@ $( [[ -s /etc/nginx/dhparam.pem ]] && echo "    ssl_dhparam /etc/nginx/dhparam.p
     access_log /var/log/nginx/${APP_NAME}.access.log;
     error_log  /var/log/nginx/${APP_NAME}.error.log;
 
-    location = / { try_files /index.html =404; }
+    # index.html und Assets immer revalidieren (ETag/Last-Modified, 304).
+    # Mit langer Cache-Laufzeit liefen Browser nach einem Update sonst mit
+    # veralteten Assets bzw. veraltetem HTML und die Seite blieb leer.
+    location = / {
+        expires -1;
+        try_files /index.html =404;
+    }
 
+    # Kein add_header in dieser Location: das würde die Security-Header
+    # (CSP, nosniff, ...) der Server-Ebene aushebeln.
     location /assets/ {
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800";
+        expires -1;
         try_files \$uri =404;
     }
 

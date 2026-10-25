@@ -11,6 +11,18 @@
 </head>
 <body>
 
+<noscript>
+  <div class="boot-error" role="alert">
+    <h2>JavaScript ist deaktiviert</h2>
+    <p>quickinfo benötigt JavaScript. Bitte JavaScript in den Browser-Einstellungen erlauben und die Seite neu laden.</p>
+  </div>
+</noscript>
+
+<div id="boot-error" class="boot-error" role="alert" hidden>
+  <h2>quickinfo konnte nicht geladen werden</h2>
+  <p>Bitte in den Browser-Einstellungen JavaScript sowie Website-Daten (Cookies) für diese Seite erlauben und die Seite neu laden. Details stehen in der Browser-Konsole.</p>
+</div>
+
 <svg width="0" height="0" class="sprite" aria-hidden="true">
   <defs>
     <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
@@ -450,6 +462,7 @@
 
 <div id="toast" class="toast hidden" role="status"></div>
 
+<script src="/assets/boot-guard.js"></script>
 <script src="/assets/chart.js"></script>
 <script src="/assets/app.js"></script>
 </body>
