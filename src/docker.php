@@ -143,13 +143,13 @@ function qi_docker_run(string $dockerArgs, int $timeout = 30, bool $returnResult
     }
 
     $argv = ['ssh'];
-    $argv[] = '-o'; $argv[] = 'BatchMode=yes';
     $argv[] = '-o'; $argv[] = 'StrictHostKeyChecking=accept-new';
     $argv[] = '-o'; $argv[] = 'ConnectTimeout=10';
     $argv[] = '-p'; $argv[] = (string)$cred['port'];
 
     $tmp = null;
     $sshpass = false;
+    $env = [];
     if ($cred['auth_type'] === 'key') {
         $tmp = tempnam(sys_get_temp_dir(), 'qi-key-');
         if ($tmp === false) {
@@ -158,12 +158,18 @@ function qi_docker_run(string $dockerArgs, int $timeout = 30, bool $returnResult
         file_put_contents($tmp, $cred['private_key']);
         chmod($tmp, 0600);
         $argv[] = '-i'; $argv[] = $tmp;
+        $argv[] = '-o'; $argv[] = 'BatchMode=yes';
     } else {
         if (!qi_command_exists('sshpass')) {
             throw new RuntimeException('Passwort-Authentifizierung erfordert das Paket "sshpass".');
         }
         $sshpass = true;
-        putenv('SSHPASS=' . $cred['password']);
+        // BatchMode=yes unterdrückt die Passwortabfrage, die sshpass beantworten
+        // muss – für Passwort-Auth daher explizit deaktivieren.
+        $argv[] = '-o'; $argv[] = 'BatchMode=no';
+        // proc_open() ersetzt die Umgebung des Kindprozesses vollständig,
+        // daher muss SSHPASS explizit mitgegeben werden (putenv() reicht nicht).
+        $env['SSHPASS'] = $cred['password'];
     }
 
     $argv[] = $cred['username'] . '@' . $cred['host'];
@@ -175,11 +181,8 @@ function qi_docker_run(string $dockerArgs, int $timeout = 30, bool $returnResult
     }
 
     try {
-        $res = qi_docker_proc($cmdline, $timeout);
+        $res = qi_docker_proc($cmdline, $timeout, $env);
     } finally {
-        if ($sshpass) {
-            putenv('SSHPASS');
-        }
         if ($tmp !== null && is_file($tmp)) {
             @unlink($tmp);
         }
@@ -198,12 +201,13 @@ function qi_docker_run(string $dockerArgs, int $timeout = 30, bool $returnResult
 /**
  * Führt eine Kommandozeile aus und liefert stdout, stderr und Exit-Code.
  *
+ * @param array<string,string> $env zusätzliche Umgebungsvariablen für den Kindprozess
  * @return array{out:string,err:string,exit:int}
  */
-function qi_docker_proc(string $cmdline, int $timeout): array
+function qi_docker_proc(string $cmdline, int $timeout, array $env = []): array
 {
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-    $proc = @proc_open($cmdline, $descriptors, $pipes, null, [
+    $proc = @proc_open($cmdline, $descriptors, $pipes, null, $env + [
         'LC_ALL' => 'C',
         'PATH'   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     ]);
