@@ -197,6 +197,8 @@ Ist der Host aktiviert, wird die Hauptseite in zwei Tabs geteilt:
   sortiert und die Ordner selbst per Drag &amp; Drop umsortiert. Umbenennen per Doppelklick,
   Löschen über das ×-Symbol (Container bleiben erhalten).
 
+![Container-Ansicht: links die Containerliste, rechts der ausgewählte Container mit Live-Auslastung (CPU, RAM, Netzwerk, Block-I/O, PIDs), Notizfeld, Mounts, Netzwerken mit IP-Adressen und den letzten Log-Einträgen](docs/screenshot-container.png)
+
 Alle Docker-Kommandos werden **remote per SSH** auf dem Ziel-Host ausgeführt
 (`ssh … docker …`). Das lokale `docker`-CLI wird nicht verwendet. Container-Notizen werden
 lokal in der Tabelle `docker_container_notes` (Schlüssel: Container-Name) gespeichert.
