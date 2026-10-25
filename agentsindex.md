@@ -225,6 +225,10 @@ nicht-GET/HEAD-Anfragen außer `login`. Session-geschützte Routen rufen `qi_req
 | GET | `/api/docker/volumes` | Volumes |
 | GET | `/api/docker/networks` | Netzwerke |
 
+Fehler bei Docker-Operationen (SSH/Docker-CLI) werden in `qi_api_docker_exec()` abgefangen und
+als `502` mit `{"error": "Docker-Host nicht erreichbar: <Ursache>"}` zurückgegeben, damit die
+Oberfläche die echte Ursache statt eines generischen 500 anzeigen kann.
+
 ### Externe API v1 (`/api/v1/*`, Bearer-Token)
 
 Dispatch in `src/api_v1.php` (`qi_api_v1_dispatch()`), Endpunkte in `QI_API_V1_ENDPOINTS`:
@@ -283,7 +287,8 @@ Relevante Docker-Schlüssel:
 - **Docker-Secrets**: AES-256-GCM; `docker/config` GET liefert nie Klartext, nur
   `has_password` / `has_private_key`.
 - **Prozessausführung**: Shell-Argumente via `escapeshellarg()`; `sshpass`-Passwort nur als
-  env `SSHPASS` (`putenv`), wird im `finally` wieder entfernt.
+  env `SSHPASS`, das `qi_docker_proc()` direkt an `proc_open()` übergibt (kein `putenv`,
+  kein Passwort in der Kommandozeile).
 - **HTTP-Header**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`; zentrale Exception-Handling ohne interne Fehlerdetails.
 
@@ -301,9 +306,11 @@ Lock über Temp-Datei verhindert parallele Läufe.
 
 ### Docker-Abfrage
 
-`src/docker.php` baut SSH-Kommandos (`ssh … docker …`). `qi_docker_run()` setzt bei
-Passwort-Auth `SSHPASS` via `putenv` und ruft `sshpass -e`; `qi_docker_proc()` liest
-stdout/stderr non-blockierend mit Timeout und liefert Exit-Code. Frontend ruft
+`src/docker.php` baut SSH-Kommandos (`ssh … docker …`). `qi_docker_run()` übergibt bei
+Passwort-Auth `SSHPASS` als Umgebungsvariable an `sshpass -e` (via `proc_open`-Env, da
+`proc_open()` die Umgebung des Kindprozesses vollständig ersetzt) und setzt dort
+`BatchMode=no`, weil `BatchMode=yes` die Passwortabfrage unterdrücken würde;
+`qi_docker_proc()` liest stdout/stderr non-blockierend mit Timeout und liefert Exit-Code. Frontend ruft
 `/api/docker/containers`, bei Auswahl `/api/docker/containers/{name}` (Detail + Notiz),
 `/stats` und `/logs` ab; Aktionen via POST `start|stop|restart`.
 

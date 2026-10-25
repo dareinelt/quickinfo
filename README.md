@@ -122,6 +122,10 @@ public/api/index.php    API-Einstiegspunkt (einzige PHP-Datei im Webroot)
 Alle Endpunkte außer `session` und `login` erfordern eine Sitzung; schreibende Anfragen
 zusätzlich den Header `X-CSRF-Token`.
 
+Schlägt eine Docker-Operation fehl (SSH nicht erreichbar, Docker-CLI-Fehler), antworten die
+`/api/docker/*`-Endpunkte mit `502 Bad Gateway` und `{"error": "Docker-Host nicht erreichbar: <Ursache>"}`.
+Die Oberfläche zeigt diese Meldung im Statusfeld der Container-Ansicht an.
+
 ## Management-Board-API (`/api/v1`)
 
 Schreibgeschützte JSON-Schnittstelle, über die ein übergeordnetes Management-Board mehrere

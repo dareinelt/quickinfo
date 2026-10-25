@@ -130,17 +130,17 @@ function qi_api_dispatch(): never
             qi_require_auth();
             qi_json_response(['ok' => qi_docker_ping()]);
 
-        case $resource === 'docker' && $id === 'containers' && $method === 'GET':
+        case $resource === 'docker' && $id === 'containers' && ($parts[2] ?? '') === '' && $method === 'GET':
             qi_require_auth();
-            qi_json_response(['containers' => qi_docker_containers()]);
+            qi_json_response(['containers' => qi_api_docker_exec('qi_docker_containers')]);
 
         case $resource === 'docker' && $id === 'volumes' && $method === 'GET':
             qi_require_auth();
-            qi_json_response(['volumes' => qi_docker_volumes()]);
+            qi_json_response(['volumes' => qi_api_docker_exec('qi_docker_volumes')]);
 
         case $resource === 'docker' && $id === 'networks' && $method === 'GET':
             qi_require_auth();
-            qi_json_response(['networks' => qi_docker_networks()]);
+            qi_json_response(['networks' => qi_api_docker_exec('qi_docker_networks')]);
 
         case $resource === 'docker' && $id === 'folders' && $method === 'GET':
             qi_require_auth();
@@ -557,6 +557,22 @@ function qi_history_build(string $range): array
 }
 
 /**
+ * Führt eine Docker-Operation aus und übersetzt Ausführungsfehler (SSH, Docker-CLI)
+ * in eine JSON-Antwort mit der eigentlichen Ursache (502) statt eines generischen 500.
+ *
+ * @param callable():mixed $fn
+ * @return mixed
+ */
+function qi_api_docker_exec(callable $fn)
+{
+    try {
+        return $fn();
+    } catch (RuntimeException $e) {
+        qi_json_error('Docker-Host nicht erreichbar: ' . $e->getMessage(), 502);
+    }
+}
+
+/**
  * Speichert die Docker-Host-Konfiguration. Erwartet JSON-Body.
  */
 function qi_api_docker_save(): never
@@ -694,7 +710,7 @@ function qi_api_docker_container(array $sub, string $method): never
     }
 
     if ($method === 'GET' && $action === '') {
-        $detail = qi_docker_inspect($ref);
+        $detail = qi_api_docker_exec(static fn() => qi_docker_inspect($ref));
         if ($detail === null) {
             qi_json_error('Container nicht gefunden.', 404);
         }
@@ -706,7 +722,7 @@ function qi_api_docker_container(array $sub, string $method): never
     }
 
     if ($method === 'GET' && $action === 'stats') {
-        $stats = qi_docker_stats($ref);
+        $stats = qi_api_docker_exec(static fn() => qi_docker_stats($ref));
         if ($stats === null) {
             qi_json_error('Keine Statistik verfügbar.', 404);
         }
@@ -715,7 +731,7 @@ function qi_api_docker_container(array $sub, string $method): never
 
     if ($method === 'GET' && $action === 'logs') {
         $lines = (int)($_GET['lines'] ?? 200);
-        qi_json_response(['logs' => qi_docker_logs($ref, $lines)]);
+        qi_json_response(['logs' => qi_api_docker_exec(static fn() => qi_docker_logs($ref, $lines))]);
     }
 
     if ($method === 'GET' && $action === 'note') {
@@ -742,7 +758,7 @@ function qi_api_docker_container(array $sub, string $method): never
     }
 
     if ($method === 'POST' && in_array($action, ['start', 'stop', 'restart'], true)) {
-        qi_docker_action($ref, $action);
+        qi_api_docker_exec(static fn() => qi_docker_action($ref, $action));
         qi_json_response(['ok' => true]);
     }
 
